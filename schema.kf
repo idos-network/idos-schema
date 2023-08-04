@@ -1,0 +1,49 @@
+database idos;
+
+table humans {
+    id text primary minlen(36) maxlen(36) notnull unique //lengths to help enforce uuidv4
+}
+
+table human_attributes {
+    id text primary minlen(36) maxlen(36) notnull unique,
+    human_id text minlen(36) maxlen(36) notnull,
+    attribute_key text notnull,
+    value text notnull,
+    foreign_key (human_id) references humans(id) on_delete cascade
+}
+
+table wallets {
+    id text primary minlen(36) maxlen(36) notnull unique,
+    human_id text minlen(36) maxlen(36) notnull,
+    address text notnull,
+    message text notnull,
+    signature text notnull,
+    foreign_key (human_id) references humans(id) on_delete cascade
+}
+
+table credentials {
+    id text primary minlen(36) maxlen(36) notnull unique,
+    human_id text minlen(36) maxlen(36) notnull,
+    issuer text notnull,
+    credential_type text notnull,
+    content text notnull,
+    foreign_key (human_id) references humans(id) on_delete cascade
+}
+
+action add_human($id) private {
+    INSERT INTO humans (id) VALUES ($id);
+}
+
+action add_wallet($id, $human_id, $address, $message, $signature) private {
+    INSERT INTO wallets (id, human_id, address, message, signature)
+    VALUES ($id, $human_id, $address, $message, $signature);
+}
+
+action add_credential($id, $human_id, $issuer, $credential_type, $content) private {
+    INSERT INTO credentials (id, human_id, issuer, credential_type, content)
+    VALUES ($id, $human_id, $issuer, $credential_type, $content);
+}
+
+action delete_human($id) private { //for testing period, for not to drop a DB if we need to clear it
+    DELETE FROM humans WHERE id=$id;
+}
