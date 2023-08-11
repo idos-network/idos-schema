@@ -1,5 +1,9 @@
 database idos;
 
+use idos {
+    registry_address: "0xfb910EF6138dD26466844442cb3BEAefAB5Bd65a"
+} as idos;
+
 table humans {
     id text primary minlen(36) maxlen(36) notnull unique //lengths to help enforce uuidv4
 }
