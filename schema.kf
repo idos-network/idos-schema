@@ -54,57 +54,57 @@ action delete_human_private($id) private { //for testing period, for not to drop
 
 action get_attributes() public {
 	SELECT * from human_attributes
-    WHERE human_id=(SELECT human_id from wallets WHERE lower(address)=lower(@caller));
+    WHERE human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
 }
 
 action add_attribute($id, $attribute_key, $value) public {
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
-    VALUES ($id, (SELECT human_id from wallets WHERE lower(address)=lower(@caller)), $attribute_key, $value);
+    VALUES ($id, (SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE), $attribute_key, $value);
 }
 
 action edit_attribute($id, $attribute_key, $value) public {
     UPDATE human_attributes
     SET attribute_key=$attribute_key, value=$value
-    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE lower(address)=lower(@caller));
+    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
 }
 
 action remove_attribute($id) public {
     DELETE from human_attributes
-    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE lower(address)=lower(@caller));
+    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
 }
 
 action get_wallets() public {
 	SELECT * from wallets
-    WHERE human_id=(SELECT human_id from wallets WHERE lower(address)=lower(@caller));
+    WHERE human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
 }
 
 action add_wallet($id, $address, $message, $signature) public {
     INSERT INTO wallets (id, human_id, address, message, signature)
-    VALUES ($id, (SELECT human_id from wallets WHERE lower(address)=lower(@caller)), $address, $message, $signature);
+    VALUES ($id, (SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE), $address, $message, $signature);
 }
 
 action remove_wallet($id) public {
     DELETE from wallets
-    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE lower(address)=lower(@caller));
+    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
 }
 
 action get_credentials() public {
 	SELECT * from credentials
-    WHERE human_id=(SELECT human_id from wallets WHERE lower(address)=lower(@caller));
+    WHERE human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
 }
 
 action add_credential($id, $issuer, $credential_type, $content) public {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
-    VALUES ($id, (SELECT human_id from wallets WHERE lower(address)=lower(@caller)), $issuer, $credential_type, $content);
+    VALUES ($id, (SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE), $issuer, $credential_type, $content);
 }
 
 action edit_credential($id, $issuer, $credential_type, $content) public {
     UPDATE credentials
     SET issuer=$issuer, credential_type=$credential_type, content=$content
-    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE lower(address)=lower(@caller));
+    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
 }
 
 action remove_credential($id) public {
     DELETE from credentials
-    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE lower(address)=lower(@caller));
+    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
 }
