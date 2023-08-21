@@ -1,7 +1,7 @@
 database idos;
 
 use idos {
-    registry_address: "0xfb910EF6138dD26466844442cb3BEAefAB5Bd65a"
+    registry_address: "0x56272dd0c469b2d831a86a81f3e1eecb0bde8850"
 } as idos;
 
 table humans {
