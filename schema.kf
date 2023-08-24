@@ -88,7 +88,7 @@ action remove_wallet($id) public {
     WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
 }
 
-action get_wallet_human_id() private {
+action get_wallet_human_id() public {
   SELECT human_id FROM wallets
     WHERE address=@caller COLLATE NOCASE;
 }
