@@ -2,7 +2,7 @@ database idos;
 
 use idos {
     registry_address: "0xdFfd3319Bb0978Ea656da41Bb8728eE163AA33F2"
-} as idos;
+} as idos_eth;
 
 table humans {
     id text primary minlen(36) maxlen(36) notnull unique //lengths to help enforce uuidv4
@@ -112,4 +112,21 @@ action edit_credential($id, $issuer, $credential_type, $content) public {
 action remove_credential($id) public {
     DELETE from credentials
     WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
+}
+
+action get_credential_owned ($id) public {
+		SELECT *
+		FROM credentials
+		WHERE id = $id
+				AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
+}
+
+action get_credential_shared ($id) public {
+		$can_access = idos_eth.has_grants(@caller, $id);
+
+		SELECT CASE WHEN $can_access != 1 THEN ERROR('caller does not have access') END;
+
+    SELECT *
+		FROM credentials
+		WHERE id = $id;
 }
