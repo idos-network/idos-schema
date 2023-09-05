@@ -34,21 +34,21 @@ table credentials {
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
-action add_human_private($id) private {
+action add_human_as_owner($id) owner {
     INSERT INTO humans (id) VALUES ($id);
 }
 
-action add_wallet_private($id, $human_id, $address, $message, $signature) private {
+action add_wallet_as_owner($id, $human_id, $address, $message, $signature) owner {
     INSERT INTO wallets (id, human_id, address, message, signature)
     VALUES ($id, $human_id, $address, $message, $signature);
 }
 
-action add_credential_private($id, $human_id, $issuer, $credential_type, $content) private {
+action add_credential_as_owner($id, $human_id, $issuer, $credential_type, $content) owner {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
     VALUES ($id, $human_id, $issuer, $credential_type, $content);
 }
 
-action delete_human_private($id) private { //for testing period, for not to drop a DB if we need to clear it
+action delete_human_as_owner($id) owner { //for testing period, for not to drop a DB if we need to clear it
     DELETE FROM humans WHERE id=$id;
 }
 
