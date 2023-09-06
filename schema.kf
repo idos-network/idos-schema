@@ -35,8 +35,12 @@ table credentials {
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
-action add_human_as_owner($id) owner {
+action add_human_as_owner($id) public {
     INSERT INTO humans (id) VALUES ($id);
+}
+
+action get_humans_as_owner() owner public view{
+    SELECT * from humans;
 }
 
 action add_wallet_as_owner($id, $human_id, $address, $message, $signature) owner {
