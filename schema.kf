@@ -43,12 +43,12 @@ action get_humans_as_owner() owner public view{
     SELECT * from humans;
 }
 
-action add_wallet_as_owner($id, $human_id, $address, $message, $signature) owner {
+action add_wallet_as_owner($id, $human_id, $address, $message, $signature) owner public {
     INSERT INTO wallets (id, human_id, address, message, signature)
     VALUES ($id, $human_id, $address, $message, $signature);
 }
 
-action add_credential_as_owner($id, $human_id, $issuer, $credential_type, $content) owner {
+action add_credential_as_owner($id, $human_id, $issuer, $credential_type, $content) owner public {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
     VALUES ($id, $human_id, $issuer, $credential_type, $content);
 }
