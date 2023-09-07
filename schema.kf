@@ -36,9 +36,9 @@ table credentials {
 }
 
 table shared_duplicates {
-    id text primary minlen(36) maxlen(36) notnull unique,
     original_id text minlen(36) maxlen(36) notnull,
-    duplicate_id text minlen(36) maxlen(36) notnull
+    duplicate_id text minlen(36) maxlen(36) notnull,
+    #primary_key primary(original_id, duplicate_id)
 }
 
 action add_human_as_owner($id) public {
@@ -109,9 +109,12 @@ action get_credentials() public view mustsign {
     WHERE human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
-action add_credential($id, $issuer, $credential_type, $content) public mustsign {
+action share_credential($id, $original_credential_id, $issuer, $credential_type, $content) public mustsign {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
     VALUES ($id, (SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE), $issuer, $credential_type, $content);
+
+    INSERT INTO shared_duplicates (original_id, duplicate_id)
+    VALUES ($original_credential_id, $id);
 }
 
 action edit_credential($id, $issuer, $credential_type, $content) public mustsign {
