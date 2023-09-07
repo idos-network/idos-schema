@@ -41,12 +41,8 @@ table shared_duplicates {
     #primary_key primary(original_id, duplicate_id)
 }
 
-action add_human_as_owner($id) public {
+action add_human_as_owner($id) public { // this is temporary for easy adding users not through nautilus for test purposes
     INSERT INTO humans (id) VALUES ($id);
-}
-
-action get_humans_as_owner() owner public view{
-    SELECT * from humans;
 }
 
 action add_wallet_as_owner($id, $human_id, $address, $message, $signature) owner public {
