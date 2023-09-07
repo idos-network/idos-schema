@@ -35,7 +35,7 @@ table credentials {
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
-action add_human_as_owner($id) public {
+action add_human_as_owner($id) public { // this is temporary for easy adding users not through nautilus for test purposes
     INSERT INTO humans (id) VALUES ($id);
 }
 
