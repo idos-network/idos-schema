@@ -1,7 +1,8 @@
 database idos;
 
 use idos {
-    registry_address: "0xdFfd3319Bb0978Ea656da41Bb8728eE163AA33F2"
+    registry_address: '0xdFfd3319Bb0978Ea656da41Bb8728eE163AA33F2',
+    chain: 'eth'
 } as idos_eth;
 
 table humans {
@@ -34,95 +35,95 @@ table credentials {
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
-action add_human_private($id) private {
+action add_human_as_owner($id) public { // this is temporary for easy adding users not through nautilus for test purposes
     INSERT INTO humans (id) VALUES ($id);
 }
 
-action add_wallet_private($id, $human_id, $address, $message, $signature) private {
+action add_wallet_as_owner($id, $human_id, $address, $message, $signature) owner public {
     INSERT INTO wallets (id, human_id, address, message, signature)
     VALUES ($id, $human_id, $address, $message, $signature);
 }
 
-action add_credential_private($id, $human_id, $issuer, $credential_type, $content) private {
+action add_credential_as_owner($id, $human_id, $issuer, $credential_type, $content) owner public {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
     VALUES ($id, $human_id, $issuer, $credential_type, $content);
 }
 
-action delete_human_private($id) private { //for testing period, for not to drop a DB if we need to clear it
+action delete_human_as_owner($id) owner { //for testing period, for not to drop a DB if we need to clear it
     DELETE FROM humans WHERE id=$id;
 }
 
-action get_attributes() public {
+action get_attributes() public view mustsign {
 	SELECT * from human_attributes
-    WHERE human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
+    WHERE human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
-action add_attribute($id, $attribute_key, $value) public {
+action add_attribute($id, $attribute_key, $value) public mustsign {
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
-    VALUES ($id, (SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE), $attribute_key, $value);
+    VALUES ($id, (SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE), $attribute_key, $value);
 }
 
-action edit_attribute($id, $attribute_key, $value) public {
+action edit_attribute($id, $attribute_key, $value) public mustsign {
     UPDATE human_attributes
     SET attribute_key=$attribute_key, value=$value
-    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
+    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
-action remove_attribute($id) public {
+action remove_attribute($id) public mustsign {
     DELETE from human_attributes
-    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
+    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
-action get_wallets() public {
+action get_wallets() public view mustsign {
 	SELECT * from wallets
-    WHERE human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
+    WHERE human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
-action add_wallet($id, $address, $message, $signature) public {
+action add_wallet($id, $address, $message, $signature) public mustsign {
     INSERT INTO wallets (id, human_id, address, message, signature)
-    VALUES ($id, (SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE), $address, $message, $signature);
+    VALUES ($id, (SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE), $address, $message, $signature);
 }
 
-action remove_wallet($id) public {
+action remove_wallet($id) public mustsign {
     DELETE from wallets
-    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
+    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
-action get_wallet_human_id() public {
+action get_wallet_human_id() public view mustsign {
   SELECT human_id FROM wallets
-    WHERE address=@caller COLLATE NOCASE;
+    WHERE address=address(@caller) COLLATE NOCASE;
 }
 
-action get_credentials() public {
+action get_credentials() public view mustsign {
 	SELECT * from credentials
-    WHERE human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
+    WHERE human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
-action add_credential($id, $issuer, $credential_type, $content) public {
+action add_credential($id, $issuer, $credential_type, $content) public mustsign {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
-    VALUES ($id, (SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE), $issuer, $credential_type, $content);
+    VALUES ($id, (SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE), $issuer, $credential_type, $content);
 }
 
-action edit_credential($id, $issuer, $credential_type, $content) public {
+action edit_credential($id, $issuer, $credential_type, $content) public mustsign {
     UPDATE credentials
     SET issuer=$issuer, credential_type=$credential_type, content=$content
-    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
+    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
-action remove_credential($id) public {
+action remove_credential($id) public mustsign {
     DELETE from credentials
-    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
+    WHERE id=$id AND human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
-action get_credential_owned ($id) public {
+action get_credential_owned ($id) public view mustsign {
 		SELECT *
 		FROM credentials
 		WHERE id = $id
-				AND human_id=(SELECT human_id from wallets WHERE address=@caller COLLATE NOCASE);
+				AND human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
-action get_credential_shared ($id) public {
-		$can_access = idos_eth.has_grants(@caller, $id);
+action get_credential_shared ($id) public mustsign {
+		$can_access = idos_eth.has_grants(@caller_address, $id);
 
 		SELECT CASE WHEN $can_access != 1 THEN ERROR('caller does not have access') END;
 
