@@ -110,6 +110,11 @@ action get_credentials() public view mustsign {
     WHERE credentials.human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
+action add_credential($id, $issuer, $credential_type, $content) public mustsign {
+    INSERT INTO credentials (id, human_id, issuer, credential_type, content)
+    VALUES ($id, (SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE), $issuer, $credential_type, $content);
+}
+
 action share_credential($id, $original_credential_id, $issuer, $credential_type, $content) public mustsign {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
     VALUES ($id, (SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE), $issuer, $credential_type, $content);
