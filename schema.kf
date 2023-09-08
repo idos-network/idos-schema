@@ -35,6 +35,14 @@ table credentials {
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
+table shared_credentials {
+    original_id text minlen(36) maxlen(36) notnull,
+    duplicate_id text minlen(36) maxlen(36) notnull,
+    #primary_key primary(original_id, duplicate_id),
+    foreign_key (original_id) references credentials(id) on_delete cascade,
+    foreign_key (duplicate_id) references credentials(id) on_delete cascade
+}
+
 action add_human_as_owner($id) public { // this is temporary for easy adding users not through nautilus for test purposes
     INSERT INTO humans (id) VALUES ($id);
 }
@@ -49,7 +57,7 @@ action add_credential_as_owner($id, $human_id, $issuer, $credential_type, $conte
     VALUES ($id, $human_id, $issuer, $credential_type, $content);
 }
 
-action delete_human_as_owner($id) owner { //for testing period, for not to drop a DB if we need to clear it
+action delete_human_as_owner($id) owner public { //for testing period, for not to drop a DB if we need to clear it
     DELETE FROM humans WHERE id=$id;
 }
 
@@ -95,13 +103,24 @@ action get_wallet_human_id() public view mustsign {
 }
 
 action get_credentials() public view mustsign {
-	SELECT * from credentials
-    WHERE human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
+	SELECT id, human_id, issuer, credential_type, shared_credentials.original_id as original_id
+    FROM credentials
+    LEFT JOIN shared_credentials
+    ON credentials.id = shared_credentials.duplicate_id
+    WHERE credentials.human_id=(SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE);
 }
 
 action add_credential($id, $issuer, $credential_type, $content) public mustsign {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
     VALUES ($id, (SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE), $issuer, $credential_type, $content);
+}
+
+action share_credential($id, $original_credential_id, $issuer, $credential_type, $content) public mustsign {
+    INSERT INTO credentials (id, human_id, issuer, credential_type, content)
+    VALUES ($id, (SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE), $issuer, $credential_type, $content);
+
+    INSERT INTO shared_credentials (original_id, duplicate_id)
+    VALUES ($original_credential_id, $id);
 }
 
 action edit_credential($id, $issuer, $credential_type, $content) public mustsign {
