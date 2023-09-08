@@ -38,7 +38,9 @@ table credentials {
 table shared_credentials {
     original_id text minlen(36) maxlen(36) notnull,
     duplicate_id text minlen(36) maxlen(36) notnull,
-    #primary_key primary(original_id, duplicate_id)
+    #primary_key primary(original_id, duplicate_id),
+    foreign_key (original_id) references credentials(id) on_delete cascade,
+    foreign_key (duplicate_id) references credentials(id) on_delete cascade
 }
 
 action add_human_as_owner($id) public { // this is temporary for easy adding users not through nautilus for test purposes
