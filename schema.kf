@@ -140,7 +140,6 @@ action get_credentials() public view mustsign {
     WHERE wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
 }
 
-<<<<<<< HEAD
 action add_credential($id, $issuer, $credential_type, $content, $status, $approved_at) public mustsign {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content, status, approved_at)
     VALUES (
@@ -170,10 +169,15 @@ action share_credential($id, $original_credential_id, $issuer, $credential_type,
 
 action edit_credential($id, $issuer, $credential_type, $content, $status, $approved_at) public mustsign {
     UPDATE credentials
-<<<<<<< HEAD
     SET issuer=$issuer, credential_type=$credential_type, content=$content, status=$status, $approved_at=$approved_at
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
+}
+
+action update_credential_as_owner($id, $human_id, $issuer, $credential_type, $content, $status, $approved_at) owner public {
+    UPDATE credentials
+    SET issuer=$issuer, credential_type=$credential_type, content=$content, status=$status, $approved_at=$approved_at
+    WHERE id=$id AND human_id=$id
 }
 
 action remove_credential($id) public mustsign {
