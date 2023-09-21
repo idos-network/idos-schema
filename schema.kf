@@ -41,6 +41,8 @@ table credentials {
     issuer text notnull,
     credential_type text notnull,
     content text notnull,
+    status text notnull,
+    approved_at text,
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
@@ -61,9 +63,10 @@ action add_wallet_as_owner($id, $human_id, $address, $public_key, $message, $sig
     VALUES ($id, $human_id, $address, $public_key, $message, $signature);
 }
 
-action add_credential_as_owner($id, $human_id, $issuer, $credential_type, $content) owner public {
-    INSERT INTO credentials (id, human_id, issuer, credential_type, content)
-    VALUES ($id, $human_id, $issuer, $credential_type, $content);
+action add_credential_as_owner($id, $human_id, $issuer, $credential_type, $content, $status, $approved_at) owner public {
+    INSERT INTO credentials
+    (id, human_id, issuer, credential_type, content, status, approved_at)
+    VALUES ($id, $human_id, $issuer, $credential_type, $content, $status, $approved_at);
 }
 
 action delete_human_as_owner($id) owner public { //for testing period, for not to drop a DB if we need to clear it
@@ -137,14 +140,17 @@ action get_credentials() public view mustsign {
     WHERE wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
 }
 
-action add_credential($id, $issuer, $credential_type, $content) public mustsign {
-    INSERT INTO credentials (id, human_id, issuer, credential_type, content)
+<<<<<<< HEAD
+action add_credential($id, $issuer, $credential_type, $content, $status, $approved_at) public mustsign {
+    INSERT INTO credentials (id, human_id, issuer, credential_type, content, status, approved_at)
     VALUES (
         $id,
         (SELECT DISTINCT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
         $issuer,
         $credential_type,
-        $content
+        $content,
+        $status,
+        $approved_at
     );
 }
 
@@ -162,9 +168,10 @@ action share_credential($id, $original_credential_id, $issuer, $credential_type,
     VALUES ($original_credential_id, $id);
 }
 
-action edit_credential($id, $issuer, $credential_type, $content) public mustsign {
+action edit_credential($id, $issuer, $credential_type, $content, $status, $approved_at) public mustsign {
     UPDATE credentials
-    SET issuer=$issuer, credential_type=$credential_type, content=$content
+<<<<<<< HEAD
+    SET issuer=$issuer, credential_type=$credential_type, content=$content, status=$status, $approved_at=$approved_at
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
 }
