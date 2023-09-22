@@ -29,7 +29,7 @@ table wallets {
     id text primary minlen(36) maxlen(36) notnull unique,
     human_id text minlen(36) maxlen(36) notnull,
     address text notnull,
-    public_key text notnull,
+    public_key text,
     message text,
     signature text,
     foreign_key (human_id) references humans(id) on_delete cascade
@@ -108,12 +108,13 @@ action get_wallets() public view mustsign {
     WHERE w2.address = address(@caller) COLLATE NOCASE OR w2.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
 }
 
-action add_wallet($id, $address, $message, $signature) public mustsign {
-    INSERT INTO wallets (id, human_id, address, message, signature)
+action add_wallet($id, $address, $public_key, $message, $signature) public mustsign {
+    INSERT INTO wallets (id, human_id, address, public_key, message, signature)
     VALUES (
         $id,
         (SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
         $address,
+        $public_key,
         $message,
         $signature
     );
