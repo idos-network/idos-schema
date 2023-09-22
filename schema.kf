@@ -21,8 +21,9 @@ table wallets {
     id text primary minlen(36) maxlen(36) notnull unique,
     human_id text minlen(36) maxlen(36) notnull,
     address text notnull,
-    message text notnull,
-    signature text notnull,
+    public_key text notnull,
+    message text,
+    signature text,
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
@@ -47,9 +48,9 @@ action add_human_as_owner($id) public { // this is temporary for easy adding use
     INSERT INTO humans (id) VALUES ($id);
 }
 
-action add_wallet_as_owner($id, $human_id, $address, $message, $signature) owner public {
-    INSERT INTO wallets (id, human_id, address, message, signature)
-    VALUES ($id, $human_id, $address, $message, $signature);
+action add_wallet_as_owner($id, $human_id, $address, $public_key, $message, $signature) owner public {
+    INSERT INTO wallets (id, human_id, address, public_key, message, signature)
+    VALUES ($id, $human_id, $address, $public_key, $message, $signature);
 }
 
 action add_credential_as_owner($id, $human_id, $issuer, $credential_type, $content) owner public {
@@ -62,66 +63,90 @@ action delete_human_as_owner($id) owner public { //for testing period, for not t
 }
 
 action get_attributes() public view mustsign {
-	SELECT human_attributes.*
+	SELECT DISTINCT human_attributes.*
     FROM human_attributes
     INNER JOIN wallets ON human_attributes.human_id = wallets.human_id
-    WHERE wallets.address = address(@caller) COLLATE NOCASE;
+    WHERE wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
 }
 
 action add_attribute($id, $attribute_key, $value) public mustsign {
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
-    VALUES ($id, (SELECT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE), $attribute_key, $value);
+    VALUES (
+        $id,
+        (SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
+        $attribute_key,
+        $value
+    );
 }
 
 action edit_attribute($id, $attribute_key, $value) public mustsign {
     UPDATE human_attributes
     SET attribute_key=$attribute_key, value=$value
-    WHERE id=$id AND human_id=(SELECT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE);
+    WHERE id=$id
+    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
 }
 
 action remove_attribute($id) public mustsign {
     DELETE FROM human_attributes
-    WHERE id=$id AND human_id=(SELECT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE);
+    WHERE id=$id
+    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
 }
 
 action get_wallets() public view mustsign {
-	SELECT w1.*
+    SELECT DISTINCT w1.*
     FROM wallets AS w1
     INNER JOIN wallets AS w2 ON w1.human_id = w2.human_id
-    WHERE w2.address = address(@caller) COLLATE NOCASE;
+    WHERE w2.address = address(@caller) COLLATE NOCASE OR w2.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
 }
 
 action add_wallet($id, $address, $message, $signature) public mustsign {
     INSERT INTO wallets (id, human_id, address, message, signature)
-    VALUES ($id, (SELECT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE), $address, $message, $signature);
+    VALUES (
+        $id,
+        (SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
+        $address,
+        $message,
+        $signature
+    );
 }
 
 action remove_wallet($id) public mustsign {
     DELETE FROM wallets
-    WHERE id=$id AND human_id=(SELECT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE);
+    WHERE id=$id AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
 }
 
 action get_wallet_human_id() public view mustsign {
-    SELECT human_id FROM wallets
-    WHERE address=address(@caller) COLLATE NOCASE;
+    SELECT DISTINCT human_id FROM wallets
+    WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE;
 }
-
 action get_credentials() public view mustsign {
-	SELECT c.id, c.human_id, c.issuer, c.credential_type, sc.original_id AS original_id
+	SELECT DISTINCT c.id, c.human_id, c.issuer, c.credential_type, sc.original_id AS original_id
     FROM credentials AS c
     LEFT JOIN shared_credentials AS sc ON c.id = sc.duplicate_id
     INNER JOIN wallets ON c.human_id = wallets.human_id
-    WHERE wallets.address = address(@caller) COLLATE NOCASE;
+    WHERE wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
 }
 
 action add_credential($id, $issuer, $credential_type, $content) public mustsign {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
-    VALUES ($id, (SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE), $issuer, $credential_type, $content);
+    VALUES (
+        $id,
+        (SELECT DISTINCT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
+        $issuer,
+        $credential_type,
+        $content
+    );
 }
 
 action share_credential($id, $original_credential_id, $issuer, $credential_type, $content) public mustsign {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
-    VALUES ($id, (SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE), $issuer, $credential_type, $content);
+    VALUES (
+        $id,
+        (SELECT DISTINCT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
+        $issuer,
+        $credential_type,
+        $content
+    );
 
     INSERT INTO shared_credentials (original_id, duplicate_id)
     VALUES ($original_credential_id, $id);
@@ -130,20 +155,22 @@ action share_credential($id, $original_credential_id, $issuer, $credential_type,
 action edit_credential($id, $issuer, $credential_type, $content) public mustsign {
     UPDATE credentials
     SET issuer=$issuer, credential_type=$credential_type, content=$content
-    WHERE id=$id AND human_id=(SELECT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE);
+    WHERE id=$id
+    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
 }
 
 action remove_credential($id) public mustsign {
     DELETE FROM credentials
-    WHERE id=$id AND human_id=(SELECT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE);
+    WHERE id=$id
+    AND human_id=(SELECT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
 }
 
 action get_credential_owned ($id) public view mustsign {
-    SELECT credentials.*
+    SELECT DISTINCT credentials.*
     FROM credentials
     INNER JOIN wallets ON credentials.human_id = wallets.human_id
     WHERE credentials.id = $id
-    AND wallets.address = address(@caller) COLLATE NOCASE;
+    AND wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
 }
 
 action get_credential_shared ($id) public mustsign {
