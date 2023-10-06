@@ -63,7 +63,7 @@ action add_wallet_as_owner($id, $human_id, $address, $public_key, $message, $sig
 
 action upsert_credential_as_owner($id, $human_id, $issuer, $credential_type, $content) owner public {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
-    VALUES ($id, $human_id, $issuer, $credential_type, $content);
+    VALUES ($id, $human_id, $issuer, $credential_type, $content)
     ON CONFLICT(id) DO UPDATE
     SET content = $content;
 }
