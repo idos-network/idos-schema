@@ -61,9 +61,11 @@ action add_wallet_as_owner($id, $human_id, $address, $public_key, $message, $sig
     VALUES ($id, $human_id, $address, $public_key, $message, $signature);
 }
 
-action add_credential_as_owner($id, $human_id, $issuer, $credential_type, $content) owner public {
+action upsert_credential_as_owner($id, $human_id, $issuer, $credential_type, $content) owner public {
     INSERT INTO credentials (id, human_id, issuer, credential_type, content)
     VALUES ($id, $human_id, $issuer, $credential_type, $content);
+    ON CONFLICT(id) DO UPDATE
+    SET content = $content;
 }
 
 action delete_human_as_owner($id) owner public { //for testing period, for not to drop a DB if we need to clear it
