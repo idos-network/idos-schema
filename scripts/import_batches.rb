@@ -7,7 +7,7 @@ ACTION_NAMES = {
   'wallets' => 'add_wallet_as_owner',
   'humans' => 'add_human_as_owner',
   'human_attributes' => 'add_attribute_as_owner',
-  'credentials' => 'add_credential_as_owner'
+  'credentials' => 'upsert_credential_as_owner'
 }.freeze
 
 IMPORT_ORDER = {
