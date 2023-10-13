@@ -215,3 +215,13 @@ action share_attribute($id, $original_attribute_id, $attribute_key, $value) publ
     INSERT INTO shared_human_attributes (original_id, duplicate_id)
     VALUES ($original_attribute_id, $id);
 }
+
+action add_shared_credential($original_id, $duplicate_id)
+    INSERT INTO shared_credentials (original_id, duplicate_id)
+    VALUES ($original_id, $duplicate_id);
+}
+
+action add_shared_attribute($original_id, $duplicate_id) owner mustsign {
+    INSERT INTO shared_human_attributes (original_id, duplicate_id)
+    VALUES ($original_id, $duplicate_id);
+}

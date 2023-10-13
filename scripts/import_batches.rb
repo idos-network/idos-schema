@@ -7,14 +7,18 @@ ACTION_NAMES = {
   'wallets' => 'add_wallet_as_owner',
   'humans' => 'add_human_as_owner',
   'human_attributes' => 'add_attribute_as_owner',
-  'credentials' => 'add_credential_as_owner'
+  'credentials' => 'add_credential_as_owner',
+  'shared_credentials' => 'add_shared_credential',
+  'shared_attributes' => 'add_shared_attributes',
 }.freeze
 
 IMPORT_ORDER = {
   'humans' => 0,
   'credentials' => 1,
   'wallets' => 2,
-  'human_attributes' => 3
+  'human_attributes' => 3,
+  'shared_credentials' => 4,
+  'shared_attributes' => 5
 }.freeze
 
 batches_directory = ARGV[0]
