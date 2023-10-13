@@ -91,6 +91,16 @@ action add_attribute($id, $attribute_key, $value) public mustsign {
     );
 }
 
+action add_attribute_as_owner($id, $human_id, $attribute_key, $value) owner public {
+    INSERT INTO human_attributes (id, human_id, attribute_key, value)
+    VALUES (
+        $id,
+        $human_id,
+        $attribute_key,
+        $value
+    );
+}
+
 action edit_attribute($id, $attribute_key, $value) public mustsign {
     UPDATE human_attributes
     SET attribute_key=$attribute_key, value=$value
