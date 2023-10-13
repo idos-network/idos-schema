@@ -5,6 +5,11 @@ use idos {
     chain: 'eth'
 } as idos_eth;
 
+use idos {
+    registry_address: 'idos-dev-1.testnet',
+    chain: 'near'
+} as idos_near;
+
 table humans {
     id text primary minlen(36) maxlen(36) notnull unique //lengths to help enforce uuidv4
 }
@@ -199,9 +204,12 @@ action get_credential_owned ($id) public view mustsign {
 }
 
 action get_credential_shared ($id) public mustsign {
-    $can_access = idos_eth.has_grants(@caller_address, $id);
+    $has_grants_on_eth = idos_eth.has_grants(@caller_address, $id);
+    $has_grant_on_near = idos_near.has_grants(@caller_address, $id);
 
-    SELECT CASE WHEN $can_access != 1 THEN ERROR('caller does not have access') END;
+    SELECT CASE
+        WHEN $has_grant_on_eth != 1 AND $has_grant_on_near != 1
+        THEN ERROR('caller does not have access') END;
 
     SELECT *
     FROM credentials
