@@ -55,3 +55,8 @@ generate-batches: check-variables ensure-folders-exist
 
 import-batches: check-variables ensure-folders-exist
 	ruby ./scripts/import_batches.rb $(BATCHES_FOLDER)
+
+test_data_folder="./test_data/"
+import-test-data:
+	ruby ./scripts/generate_test_data.rb $(test_data_folder)
+	ruby ./scripts/import_batches.rb $(test_data_folder)
