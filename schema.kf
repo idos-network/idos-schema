@@ -216,7 +216,7 @@ action share_attribute($id, $original_attribute_id, $attribute_key, $value) publ
     VALUES ($original_attribute_id, $id);
 }
 
-action add_shared_credential($original_id, $duplicate_id)
+action add_shared_credential($original_id, $duplicate_id) {
     INSERT INTO shared_credentials (original_id, duplicate_id)
     VALUES ($original_id, $duplicate_id);
 }
