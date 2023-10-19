@@ -217,7 +217,12 @@ action get_credential_shared ($id) public mustsign {
 
 action share_attribute($id, $original_attribute_id, $attribute_key, $value) public mustsign {
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
-    VALUES ($id, (SELECT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE), $attribute_key, $value);
+    VALUES (
+        $id,
+        (SELECT DISTINCT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
+        $attribute_key,
+        $value
+    );
 
     add_shared_attribute($original_attribute_id, $id);
 }
