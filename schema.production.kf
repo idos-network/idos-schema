@@ -202,7 +202,7 @@ action get_credential_owned ($id) public view mustsign {
     AND wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
 }
 
-action get_credential_shared ($id) public mustsign {
+action get_credential_shared ($id) public view mustsign {
     $has_grants_on_eth = idos_eth.has_grants(@caller_address, $id);
     $has_grant_on_near = idos_near.has_grants(@caller_address, $id);
 
