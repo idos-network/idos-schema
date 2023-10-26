@@ -1,0 +1,39 @@
+database idos;
+
+use idos {
+    registry_address: '0xdFfd3319Bb0978Ea656da41Bb8728eE163AA33F2',
+    chain: 'eth'
+} as idos_eth;
+
+use idos {
+    registry_address: 'idos-dev-1.testnet',
+    chain: 'near'
+} as idos_near;
+
+table humans {
+  id text primary minlen(36) maxlen(36) notnull unique //lengths to help enforce uuidv4
+}
+
+table human_records {
+  id text primary minlen(36) maxlen(36) notnull unique,
+  human_id text minlen(36) maxlen(36) notnull,
+  content text
+}
+
+action add_human_record($id, $human_id, $content) owner public {
+  INSERT INTO human_records (id, human_id, content)
+  VALUES ($id, $human_id, $content);
+}
+
+action get_shared_record($id) public view mustsign {
+  $has_grant_on_eth = idos_eth.has_grants(address(@caller), $id);
+  $has_grant_on_near = idos_near.has_grants(address(@caller), $id);
+
+  SELECT CASE
+      WHEN $has_grant_on_eth != 1 AND $has_grant_on_near != 1
+      THEN ERROR('caller does not have access') END;
+
+  SELECT *
+  FROM human_records
+  WHERE id = $id;
+}
