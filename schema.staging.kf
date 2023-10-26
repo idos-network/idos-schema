@@ -6,7 +6,7 @@ use idos {
 } as idos_eth;
 
 use idos {
-    registry_address: 'idos-dev-1.testnet',
+    registry_address: 'idos-dev-2.testnet',
     chain: 'near'
 } as idos_near;
 
