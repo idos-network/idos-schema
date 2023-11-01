@@ -62,9 +62,11 @@ action add_human_as_owner($id) public { // this is temporary for easy adding use
     INSERT INTO humans (id) VALUES ($id);
 }
 
-action add_wallet_as_owner($id, $human_id, $address, $public_key, $message, $signature) owner public {
+action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $message, $signature) owner public {
     INSERT INTO wallets (id, human_id, address, public_key, message, signature)
-    VALUES ($id, $human_id, $address, $public_key, $message, $signature);
+    VALUES ($id, $human_id, $address, $public_key, $message, $signature)
+    ON CONFLICT(id) DO UPDATE
+    SET human_id=$human_id, address=$address, public_key=$public_key, message=$message, signature=$signature;
 }
 
 action upsert_credential_as_owner($id, $human_id, $issuer, $credential_type, $content, $encryption_public_key) owner public {
