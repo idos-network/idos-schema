@@ -201,7 +201,7 @@ action get_credential_owned ($id) public view mustsign {
     FROM credentials
     INNER JOIN wallets ON credentials.human_id = wallets.human_id
     WHERE credentials.id = $id
-    AND wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
+    AND (wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE);
 }
 
 action get_credential_shared ($id) public view mustsign {
