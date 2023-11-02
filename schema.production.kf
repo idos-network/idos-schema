@@ -212,7 +212,7 @@ action get_credential_shared ($id) public view mustsign {
         WHEN $has_grant_on_eth != 1 AND $has_grant_on_near != 1
         THEN ERROR('caller does not have access') END;
 
-    SELECT *
+    SELECT id, issuer, credential_type, content, encryption_public_key
     FROM credentials
     WHERE id = $id;
 }
