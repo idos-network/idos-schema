@@ -206,7 +206,7 @@ action get_credential_owned ($id) public view mustsign {
 
 action get_credential_shared ($id) public view mustsign {
     $has_grant_on_eth = idos_eth.has_grants(address(@caller), $id);
-    $has_grant_on_near = idos_near.has_grants(address(@caller), $id);
+    $has_grant_on_near = idos_near.has_grants(public_key(@caller), $id);
 
     SELECT CASE
         WHEN $has_grant_on_eth != 1 AND $has_grant_on_near != 1
