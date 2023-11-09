@@ -145,6 +145,12 @@ action remove_wallet($id) public mustsign {
     WHERE id=$id AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
 }
 
+action has_profile($address) public view {
+    SELECT EXISTS(
+        SELECT 1 FROM wallets WHERE address=$address COLLATE NOCASE
+    ) AS has_profile;
+}
+
 action get_wallet_human_id() public view mustsign {
     SELECT DISTINCT human_id FROM wallets
     WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE;
