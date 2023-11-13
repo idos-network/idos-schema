@@ -45,6 +45,8 @@ table credentials {
     human_id text minlen(36) maxlen(36) notnull,
     issuer text notnull,
     credential_type text notnull,
+    credential_level text,
+    credential_status text,
     content text notnull,
     encryption_public_key text notnull,
     foreign_key (human_id) references humans(id) on_delete cascade
@@ -69,11 +71,11 @@ action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $message, $
     SET human_id=$human_id, address=$address, public_key=$public_key, message=$message, signature=$signature;
 }
 
-action upsert_credential_as_owner($id, $human_id, $issuer, $credential_type, $content, $encryption_public_key) owner public {
-    INSERT INTO credentials (id, human_id, issuer, credential_type, content, encryption_public_key)
-    VALUES ($id, $human_id, $issuer, $credential_type, $content, $encryption_public_key)
+action upsert_credential_as_owner($id, $human_id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) owner public {
+    INSERT INTO credentials (id, human_id, issuer, credential_type, credential_level, credential_status, content, encryption_public_key)
+    VALUES ($id, $human_id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key)
     ON CONFLICT(id) DO UPDATE
-    SET issuer=$issuer, content=$content, encryption_public_key=$encryption_public_key;
+    SET issuer=$issuer, credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key;
 }
 
 action delete_human_as_owner($id) owner public { //for testing period, for not to drop a DB if we need to clear it
@@ -156,32 +158,36 @@ action get_wallet_human_id() public view mustsign {
     WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE;
 }
 action get_credentials() public view mustsign {
-	SELECT DISTINCT c.id, c.human_id, c.issuer, c.credential_type, sc.original_id AS original_id
+	SELECT DISTINCT c.id, c.human_id, c.issuer, c.credential_type, c.credential_level, c.credential_status, sc.original_id AS original_id
     FROM credentials AS c
     LEFT JOIN shared_credentials AS sc ON c.id = sc.duplicate_id
     INNER JOIN wallets ON c.human_id = wallets.human_id
     WHERE wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
 }
 
-action add_credential($id, $issuer, $credential_type, $content, $encryption_public_key) public mustsign {
-    INSERT INTO credentials (id, human_id, issuer, credential_type, content, encryption_public_key)
+action add_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public mustsign {
+    INSERT INTO credentials (id, human_id, issuer, credential_type, credential_level, credential_status, content, encryption_public_key)
     VALUES (
         $id,
         (SELECT DISTINCT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
         $issuer,
         $credential_type,
+        $credential_level,
+        $credential_status,
         $content,
         $encryption_public_key
     );
 }
 
-action share_credential($id, $original_credential_id, $issuer, $credential_type, $content, $encryption_public_key) public mustsign {
-    INSERT INTO credentials (id, human_id, issuer, credential_type, content, encryption_public_key)
+action share_credential($id, $original_credential_id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public mustsign {
+    INSERT INTO credentials (id, human_id, issuer, credential_type, credential_level, credential_status, content, encryption_public_key)
     VALUES (
         $id,
         (SELECT DISTINCT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
         $issuer,
         $credential_type,
+        $credential_level,
+        $credential_status,
         $content,
         $encryption_public_key
     );
@@ -189,9 +195,9 @@ action share_credential($id, $original_credential_id, $issuer, $credential_type,
     add_shared_credential($original_credential_id, $id);
 }
 
-action edit_credential($id, $issuer, $credential_type, $content, $encryption_public_key) public mustsign {
+action edit_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public mustsign {
     UPDATE credentials
-    SET issuer=$issuer, credential_type=$credential_type, content=$content, encryption_public_key=$encryption_public_key
+    SET issuer=$issuer, credential_type=$credential_type, credential_level=$credential_level, credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
 }
