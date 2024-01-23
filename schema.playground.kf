@@ -1,7 +1,7 @@
 database idos;
 
 use idos {
-    registry_address: '0x1a45583B15AAfE2d11B738e7E49Fd01A0fCD6890',
+    registry_address: '0x4D91c98056073067e3A9acbc2D2b40c4d8241cA9',
     chain: 'eth'
 } as idos_eth;
 
