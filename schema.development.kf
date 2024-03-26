@@ -33,8 +33,9 @@ table shared_human_attributes {
 table wallets {
     id text primary minlen(36) maxlen(36) notnull unique,
     human_id text minlen(36) maxlen(36) notnull,
-    address text notnull,
-    public_key text notnull,
+    address text,
+    public_key text,
+    wallet_type text notnull,
     message text,
     signature text,
     foreign_key (human_id) references humans(id) on_delete cascade
@@ -60,13 +61,13 @@ table shared_credentials {
     foreign_key (duplicate_id) references credentials(id) on_delete cascade
 }
 
-action add_human_as_owner($id) public { // this is temporary for easy adding users not through nautilus for test purposes
+action add_human_as_owner($id) owner public { // this is temporary for easy adding users not through nautilus for test purposes
     INSERT INTO humans (id) VALUES ($id);
 }
 
-action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $message, $signature) owner public {
-    INSERT INTO wallets (id, human_id, address, public_key, message, signature)
-    VALUES ($id, $human_id, $address, $public_key, $message, $signature)
+action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $wallet_type, $message, $signature) owner public {
+    INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature)
+    VALUES ($id, $human_id, $address, $public_key, $wallet_type, $message, $signature)
     ON CONFLICT(id) DO UPDATE
     SET human_id=$human_id, address=$address, public_key=$public_key, message=$message, signature=$signature;
 }
@@ -82,19 +83,29 @@ action delete_human_as_owner($id) owner public { //for testing period, for not t
     DELETE FROM humans WHERE id=$id;
 }
 
-action get_attributes() public view mustsign {
+@kgw(authn='true')
+action get_attributes() public view {
+    $converted = idos_near.hex_to_base58(@caller);
 	SELECT DISTINCT ha.id, ha.human_id, ha.attribute_key, ha.value, sha.original_id AS original_id
     FROM human_attributes AS ha
     LEFT JOIN shared_human_attributes AS sha ON ha.id = sha.duplicate_id
     INNER JOIN wallets ON ha.human_id = wallets.human_id
-    WHERE wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
+    WHERE (
+        wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
+    ) OR (
+        wallets.wallet_type = 'NEAR' AND wallets.public_key = $converted
+    );
 }
 
-action add_attribute($id, $attribute_key, $value) public mustsign {
+@kgw(authn='true')
+action add_attribute($id, $attribute_key, $value) public {
+    $converted = idos_near.hex_to_base58(@caller);
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
     VALUES (
         $id,
-        (SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
+        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $converted)
+        ),
         $attribute_key,
         $value
     );
@@ -110,41 +121,47 @@ action add_attribute_as_owner($id, $human_id, $attribute_key, $value) owner publ
     );
 }
 
-action edit_attribute($id, $attribute_key, $value) public mustsign {
+@kgw(authn='true')
+action edit_attribute($id, $attribute_key, $value) public {
+    $converted = idos_near.hex_to_base58(@caller);
     UPDATE human_attributes
     SET attribute_key=$attribute_key, value=$value
     WHERE id=$id
-    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
-}
-
-action remove_attribute($id) public mustsign {
-    DELETE FROM human_attributes
-    WHERE id=$id
-    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
-}
-
-action get_wallets() public view mustsign {
-    SELECT DISTINCT w1.*
-    FROM wallets AS w1
-    INNER JOIN wallets AS w2 ON w1.human_id = w2.human_id
-    WHERE w2.address = address(@caller) COLLATE NOCASE OR w2.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
-}
-
-action add_wallet($id, $address, $message, $signature) public mustsign {
-    INSERT INTO wallets (id, human_id, address, public_key, message, signature)
-    VALUES (
-        $id,
-        (SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
-        $address,
-        public_key(@caller, 'base64'),
-        $message,
-        $signature
+    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+        OR (wallet_type = 'NEAR' AND public_key = $converted)
     );
 }
 
-action remove_wallet($id) public mustsign {
+@kgw(authn='true')
+action remove_attribute($id) public {
+    $converted = idos_near.hex_to_base58(@caller);
+    DELETE FROM human_attributes
+    WHERE id=$id
+    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+        OR (wallet_type = 'NEAR' AND public_key = $converted)
+    );
+}
+
+@kgw(authn='true')
+action get_wallets() public view {
+    $converted = idos_near.hex_to_base58(@caller);
+    SELECT DISTINCT w1.*
+    FROM wallets AS w1
+    INNER JOIN wallets AS w2 ON w1.human_id = w2.human_id
+    WHERE (
+        w2.wallet_type = 'EVM' AND w2.address = @caller COLLATE NOCASE
+    ) OR (
+        w2.wallet_type = 'NEAR' AND w2.public_key = $converted
+    );
+}
+
+@kgw(authn='true')
+action remove_wallet($id) public {
+    $converted = idos_eth.hex_to_base58(@caller);
     DELETE FROM wallets
-    WHERE id=$id AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
+    WHERE id=$id AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+        OR (wallet_type = 'NEAR' AND public_key = $converted)
+    );
 }
 
 action has_profile($address) public view {
@@ -153,23 +170,37 @@ action has_profile($address) public view {
     ) AS has_profile;
 }
 
-action get_wallet_human_id() public view mustsign {
+@kgw(authn='true')
+action get_wallet_human_id() public view {
+    $converted = idos_eth.hex_to_base58(@caller);
     SELECT DISTINCT human_id FROM wallets
-    WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE;
+    WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+        OR (wallet_type = 'NEAR' AND public_key = $converted);
 }
-action get_credentials() public view mustsign {
+
+@kgw(authn='true')
+action get_credentials() public view {
+    $converted = idos_eth.hex_to_base58(@caller);
 	SELECT DISTINCT c.id, c.human_id, c.issuer, c.credential_type, c.credential_level, c.credential_status, sc.original_id AS original_id
     FROM credentials AS c
     LEFT JOIN shared_credentials AS sc ON c.id = sc.duplicate_id
     INNER JOIN wallets ON c.human_id = wallets.human_id
-    WHERE wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE;
+    WHERE (
+        wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
+    ) OR (
+        wallets.wallet_type = 'NEAR' AND wallets.public_key = $converted
+    );
 }
 
-action add_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public mustsign {
+@kgw(authn='true')
+action add_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
+    $converted = idos_eth.hex_to_base58(@caller);
     INSERT INTO credentials (id, human_id, issuer, credential_type, credential_level, credential_status, content, encryption_public_key)
     VALUES (
         $id,
-        (SELECT DISTINCT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
+        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $converted)
+        ),
         $issuer,
         $credential_type,
         $credential_level,
@@ -179,11 +210,15 @@ action add_credential($id, $issuer, $credential_type, $credential_level, $creden
     );
 }
 
-action share_credential($id, $original_credential_id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public mustsign {
+@kgw(authn='true')
+action share_credential($id, $original_credential_id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
+    $converted = idos_eth.hex_to_base58(@caller);
     INSERT INTO credentials (id, human_id, issuer, credential_type, credential_level, credential_status, content, encryption_public_key)
     VALUES (
         $id,
-        (SELECT DISTINCT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
+        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $converted)
+        ),
         $issuer,
         $credential_type,
         $credential_level,
@@ -195,30 +230,44 @@ action share_credential($id, $original_credential_id, $issuer, $credential_type,
     add_shared_credential($original_credential_id, $id);
 }
 
-action edit_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public mustsign {
+@kgw(authn='true')
+action edit_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
+    $converted = idos_eth.hex_to_base58(@caller);
     UPDATE credentials
     SET issuer=$issuer, credential_type=$credential_type, credential_level=$credential_level, credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key
     WHERE id=$id
-    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
+    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+        OR (wallet_type = 'NEAR' AND public_key = $converted)
+    );
 }
 
-action remove_credential($id) public mustsign {
+@kgw(authn='true')
+action remove_credential($id) public {
+    $converted = idos_eth.hex_to_base58(@caller);
     DELETE FROM credentials
     WHERE id=$id
-    AND human_id=(SELECT human_id FROM wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE);
+    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+        OR (wallet_type = 'NEAR' AND public_key = $converted)
+    );
 }
 
-action get_credential_owned ($id) public view mustsign {
+@kgw(authn='true')
+action get_credential_owned ($id) public view {
+    $converted = idos_eth.hex_to_base58(@caller);
     SELECT DISTINCT credentials.*
     FROM credentials
     INNER JOIN wallets ON credentials.human_id = wallets.human_id
     WHERE credentials.id = $id
-    AND (wallets.address = address(@caller) COLLATE NOCASE OR wallets.public_key = public_key(@caller, 'base64') COLLATE NOCASE);
+    AND (
+        (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
+            OR (wallets.wallet_type = 'NEAR' AND wallets.public_key = $converted)
+    );
 }
 
-action get_credential_shared ($id) public view mustsign {
-    $has_grant_on_eth = idos_eth.has_grants(address(@caller), $id);
-    $has_grant_on_near = idos_near.has_grants(address(@caller), $id);
+@kgw(authn='true')
+action get_credential_shared ($id) public view {
+    $has_grant_on_eth = idos_eth.has_grants(@caller, $id);
+    $has_grant_on_near = idos_near.has_grants(@caller, $id);
 
     SELECT CASE
         WHEN $has_grant_on_eth != 1 AND $has_grant_on_near != 1
@@ -229,11 +278,15 @@ action get_credential_shared ($id) public view mustsign {
     WHERE id = $id;
 }
 
-action share_attribute($id, $original_attribute_id, $attribute_key, $value) public mustsign {
+@kgw(authn='true')
+action share_attribute($id, $original_attribute_id, $attribute_key, $value) public {
+    $converted = idos_eth.hex_to_base58(@caller);
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
     VALUES (
         $id,
-        (SELECT DISTINCT human_id from wallets WHERE address=address(@caller) COLLATE NOCASE OR public_key = public_key(@caller, 'base64') COLLATE NOCASE),
+        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $converted)
+        ),
         $attribute_key,
         $value
     );
@@ -249,4 +302,28 @@ action add_shared_credential($original_id, $duplicate_id) owner public {
 action add_shared_attribute($original_id, $duplicate_id) owner public {
     INSERT INTO shared_human_attributes (original_id, duplicate_id)
     VALUES ($original_id, $duplicate_id);
+}
+
+@kgw(authn='true')
+action add_wallet($id, $address, $message, $signature) public {
+    $converted = idos_near.hex_to_base58(@caller);
+    $wallet_type = idos_near.determine_wallet_type($address);
+    INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature)
+    VALUES (
+        $id,
+        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $converted)
+        ),
+        $address,
+        NULL,
+        $wallet_type,
+        $message,
+        $signature
+    );
+}
+
+@kgw(authn='true')
+action show_caller() public view {
+    $converted = idos_eth.hex_to_base58(@caller);
+    SELECT @caller, $converted;
 }
