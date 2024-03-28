@@ -33,7 +33,7 @@ table shared_human_attributes {
 table wallets {
     id text primary minlen(36) maxlen(36) notnull unique,
     human_id text minlen(36) maxlen(36) notnull,
-    address text,
+    address text notnull,
     public_key text,
     wallet_type text notnull,
     message text,

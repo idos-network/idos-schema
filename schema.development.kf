@@ -1,7 +1,7 @@
 database idos;
 
 use idos {
-    registry_address: '0xd75fE3089a983fDB28a18BaB3ff625a6a49C0C00',
+    registry_address: '0x4D9DE1bb481B9dA37A7a7E3a07F6f60654fEe7BB',
     chain: 'eth'
 } as idos_eth;
 
@@ -33,7 +33,7 @@ table shared_human_attributes {
 table wallets {
     id text primary minlen(36) maxlen(36) notnull unique,
     human_id text minlen(36) maxlen(36) notnull,
-    address text,
+    address text notnull,
     public_key text,
     wallet_type text notnull,
     message text,
@@ -305,7 +305,7 @@ action add_shared_attribute($original_id, $duplicate_id) owner public {
 }
 
 @kgw(authn='true')
-action add_wallet($id, $address, $message, $signature) public {
+action add_wallet($id, $address, $public_key, $message, $signature) public {
     $converted = idos_near.hex_to_base58(@caller);
     $wallet_type = idos_near.determine_wallet_type($address);
     INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature)
@@ -315,7 +315,10 @@ action add_wallet($id, $address, $message, $signature) public {
             OR (wallet_type = 'NEAR' AND public_key = $converted)
         ),
         $address,
-        NULL,
+        CASE
+            WHEN $public_key = '' OR $public_key = NULL THEN NULL
+            ELSE $public_key
+        END,
         $wallet_type,
         $message,
         $signature
