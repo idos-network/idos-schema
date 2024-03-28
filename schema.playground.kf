@@ -61,7 +61,7 @@ table shared_credentials {
     foreign_key (duplicate_id) references credentials(id) on_delete cascade
 }
 
-action add_human_as_owner($id) owner public { // this is temporary for easy adding users not through nautilus for test purposes
+action add_human_as_owner($id) owner public {
     INSERT INTO humans (id) VALUES ($id);
 }
 
