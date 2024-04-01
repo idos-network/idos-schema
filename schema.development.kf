@@ -327,7 +327,7 @@ action add_wallet($id, $address, $public_key, $message, $signature) public {
         ),
         $address,
         CASE
-            WHEN $public_key = '' OR $public_key = NULL THEN NULL
+            WHEN $public_key = '' THEN NULL
             ELSE $public_key
         END,
         $wallet_type,

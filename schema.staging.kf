@@ -326,8 +326,8 @@ action add_wallet($id, $address, $public_key, $message, $signature) public {
             OR (wallet_type = 'NEAR' AND public_key = $converted)
         ),
         $address,
-        SELECT CASE
-            WHEN $public_key = '' OR $public_key = NULL THEN NULL
+        CASE
+            WHEN $public_key = '' THEN NULL
             ELSE $public_key
         END,
         $wallet_type,
