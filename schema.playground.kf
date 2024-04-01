@@ -91,26 +91,23 @@ action delete_human_as_owner($id) owner public { //for testing period, for not t
 @kgw(authn='true')
 action get_attributes() public view {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
 	SELECT DISTINCT ha.id, ha.human_id, ha.attribute_key, ha.value, sha.original_id AS original_id
     FROM human_attributes AS ha
     LEFT JOIN shared_human_attributes AS sha ON ha.id = sha.duplicate_id
-    INNER JOIN wallets ON ha.human_id = wallets.human_id
-    WHERE (
-        wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
-    ) OR (
-        wallets.wallet_type = 'NEAR' AND wallets.public_key = $converted
-    );
+    WHERE ha.human_id = $current_human_id;
 }
 
 @kgw(authn='true')
 action add_attribute($id, $attribute_key, $value) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
     VALUES (
         $id,
-        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = $converted)
-        ),
+        $current_human_id,
         $attribute_key,
         $value
     );
@@ -129,44 +126,41 @@ action add_attribute_as_owner($id, $human_id, $attribute_key, $value) owner publ
 @kgw(authn='true')
 action edit_attribute($id, $attribute_key, $value) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
     UPDATE human_attributes
     SET attribute_key=$attribute_key, value=$value
     WHERE id=$id
-    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted)
-    );
+    AND human_id=$current_human_id;
 }
 
 @kgw(authn='true')
 action remove_attribute($id) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
     DELETE FROM human_attributes
     WHERE id=$id
-    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted)
-    );
+    AND human_id=$current_human_id;
 }
 
 @kgw(authn='true')
 action get_wallets() public view {
     $converted = idos_near.implicit_address_to_public_key(@caller);
-    SELECT DISTINCT w1.*
-    FROM wallets AS w1
-    INNER JOIN wallets AS w2 ON w1.human_id = w2.human_id
-    WHERE (
-        w2.wallet_type = 'EVM' AND w2.address = @caller COLLATE NOCASE
-    ) OR (
-        w2.wallet_type = 'NEAR' AND w2.public_key = $converted
-    );
+    $current_human_id = caller_human_id();
+
+    SELECT *
+    FROM wallets
+    WHERE human_id=$current_human_id;
 }
 
 @kgw(authn='true')
 action remove_wallet($id) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
     DELETE FROM wallets
-    WHERE id=$id AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted)
-    );
+    WHERE id=$id AND human_id=$current_human_id;
 }
 
 action has_profile($address) public view {
@@ -178,34 +172,31 @@ action has_profile($address) public view {
 @kgw(authn='true')
 action get_wallet_human_id() public view {
     $converted = idos_near.implicit_address_to_public_key(@caller);
-    SELECT DISTINCT human_id FROM wallets
-    WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted);
+    $current_human_id = caller_human_id();
+
+    SELECT $current_human_id as human_id;
 }
 
 @kgw(authn='true')
 action get_credentials() public view {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
 	SELECT DISTINCT c.id, c.human_id, c.issuer, c.credential_type, c.credential_level, c.credential_status, sc.original_id AS original_id
     FROM credentials AS c
     LEFT JOIN shared_credentials AS sc ON c.id = sc.duplicate_id
-    INNER JOIN wallets ON c.human_id = wallets.human_id
-    WHERE (
-        wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
-    ) OR (
-        wallets.wallet_type = 'NEAR' AND wallets.public_key = $converted
-    );
+    WHERE c.human_id = $current_human_id;
 }
 
 @kgw(authn='true')
 action add_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
     INSERT INTO credentials (id, human_id, issuer, credential_type, credential_level, credential_status, content, encryption_public_key)
     VALUES (
         $id,
-        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = $converted)
-        ),
+        $current_human_id,
         $issuer,
         $credential_type,
         $credential_level,
@@ -218,12 +209,12 @@ action add_credential($id, $issuer, $credential_type, $credential_level, $creden
 @kgw(authn='true')
 action share_credential($id, $original_credential_id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
     INSERT INTO credentials (id, human_id, issuer, credential_type, credential_level, credential_status, content, encryption_public_key)
     VALUES (
         $id,
-        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = $converted)
-        ),
+        $current_human_id,
         $issuer,
         $credential_type,
         $credential_level,
@@ -238,35 +229,33 @@ action share_credential($id, $original_credential_id, $issuer, $credential_type,
 @kgw(authn='true')
 action edit_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
     UPDATE credentials
     SET issuer=$issuer, credential_type=$credential_type, credential_level=$credential_level, credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key
     WHERE id=$id
-    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted)
-    );
+    AND human_id=$current_human_id;
 }
 
 @kgw(authn='true')
 action remove_credential($id) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
     DELETE FROM credentials
     WHERE id=$id
-    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted)
-    );
+    AND human_id=$current_human_id;
 }
 
 @kgw(authn='true')
 action get_credential_owned ($id) public view {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
     SELECT DISTINCT credentials.*
     FROM credentials
-    INNER JOIN wallets ON credentials.human_id = wallets.human_id
     WHERE credentials.id = $id
-    AND (
-        (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
-            OR (wallets.wallet_type = 'NEAR' AND wallets.public_key = $converted)
-    );
+    AND credentials.human_id = $current_human_id;
 }
 
 @kgw(authn='true')
@@ -286,12 +275,12 @@ action get_credential_shared ($id) public view {
 @kgw(authn='true')
 action share_attribute($id, $original_attribute_id, $attribute_key, $value) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    $current_human_id = caller_human_id();
+
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
     VALUES (
         $id,
-        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = $converted)
-        ),
+        $current_human_id,
         $attribute_key,
         $value
     );
@@ -310,9 +299,10 @@ action add_shared_attribute($original_id, $duplicate_id) owner public {
 }
 
 @kgw(authn='true')
-action add_wallet($id, $address, $message, $signature) public {
+action add_wallet($id, $address, $public_key, $message, $signature) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
     $wallet_type = idos_near.determine_wallet_type($address);
+    $current_human_id = caller_human_id();
 
     SELECT CASE
         WHEN $wallet_type = 'NEAR' AND ($public_key IS NULL OR length($public_key) != 52)
@@ -322,9 +312,7 @@ action add_wallet($id, $address, $message, $signature) public {
     INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature)
     VALUES (
         $id,
-        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = $converted)
-        ),
+        $current_human_id,
         $address,
         CASE
             WHEN $public_key = '' THEN NULL
@@ -334,4 +322,14 @@ action add_wallet($id, $address, $message, $signature) public {
         $message,
         $signature
     );
+}
+
+action caller_human_id() private view {
+    $converted = idos_near.implicit_address_to_public_key(@caller);
+    SELECT human_id
+    FROM wallets
+    WHERE
+        (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+        OR (wallet_type = 'NEAR' AND public_key = $converted)
+    LIMIT 1;
 }
