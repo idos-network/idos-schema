@@ -67,7 +67,7 @@ action add_human_as_owner($id) owner public {
 
 action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $wallet_type, $message, $signature) owner public {
     SELECT CASE
-        WHEN $wallet_type = "NEAR" AND length($public_key) != 52
+        WHEN $wallet_type = 'NEAR' AND ($public_key IS NULL OR length($public_key) != 52)
         THEN ERROR('NEAR wallets require a valid public_key to be given.')
     END;
 
@@ -315,7 +315,7 @@ action add_wallet($id, $address, $message, $signature) public {
     $wallet_type = idos_near.determine_wallet_type($address);
 
     SELECT CASE
-        WHEN $wallet_type = "NEAR" AND length($public_key) != 52
+        WHEN $wallet_type = 'NEAR' AND ($public_key IS NULL OR length($public_key) != 52)
         THEN ERROR('NEAR wallets require a valid public_key to be given.')
     END;
 
