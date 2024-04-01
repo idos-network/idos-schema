@@ -74,7 +74,7 @@ action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $wallet_typ
     INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature)
     VALUES ($id, $human_id, $address, $public_key, $wallet_type, $message, $signature)
     ON CONFLICT(id) DO UPDATE
-    SET human_id=$human_id, address=$address, public_key=$public_key, message=$message, signature=$signature;
+    SET human_id=$human_id, address=$address, public_key=$public_key,  wallet_type=$wallet_type, message=$message, signature=$signature;
 }
 
 action upsert_credential_as_owner($id, $human_id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) owner public {
