@@ -88,6 +88,10 @@ action delete_human_as_owner($id) owner public { //for testing period, for not t
     DELETE FROM humans WHERE id=$id;
 }
 
+action delete_wallet_as_owner($id) owner public { //temporary, to remove wrong data from initial test period
+    DELETE FROM wallets WHERE id=$id;
+}
+
 @kgw(authn='true')
 action get_attributes() public view {
     $converted = idos_near.implicit_address_to_public_key(@caller);
