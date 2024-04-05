@@ -10,6 +10,11 @@ use idos {
     chain: 'near'
 } as idos_near;
 
+use idos {
+    registry_address: '0x7D11563Bd4aA096CC83Fbe2cdd0557010dd58477',
+    chain: 'arbitrum'
+} as idos_arbitrum;
+
 table humans {
     id text primary minlen(36) maxlen(36) notnull unique //lengths to help enforce uuidv4
 }
@@ -278,9 +283,10 @@ action get_credential_owned ($id) public view {
 action get_credential_shared ($id) public view {
     $has_grant_on_eth = idos_eth.has_grants(@caller, $id);
     $has_grant_on_near = idos_near.has_grants(@caller, $id);
+    $has_grant_on_arbitrum = idos_arbitrum.has_grants(@caller, $id);
 
     SELECT CASE
-        WHEN $has_grant_on_eth != 1 AND $has_grant_on_near != 1
+        WHEN $has_grant_on_eth != 1 AND $has_grant_on_near != 1 AND $has_grant_on_arbitrum != 1
         THEN ERROR('caller does not have access') END;
 
     SELECT *
