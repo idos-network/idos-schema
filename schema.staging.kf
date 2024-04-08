@@ -66,10 +66,10 @@ action add_human_as_owner($id) owner public {
 }
 
 action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $wallet_type, $message, $signature) owner public {
-    SELECT CASE
-        WHEN $wallet_type = 'NEAR' AND ($public_key IS NULL OR length($public_key) != 52)
-        THEN ERROR('NEAR wallets require a valid public_key to be given.')
-    END;
+    SELECT CASE WHEN $wallet_type = 'NEAR' AND $public_key IS NULL THEN ERROR('NEAR wallets require a public_key to be given.') END;
+
+    $valid_near_public_key = idos_near.is_valid_public_key($public_key);
+    SELECT CASE WHEN $wallet_type = 'NEAR' AND $valid_near_public_key != 1 THEN ERROR('Invalid or unsupported public key.') END;
 
     INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature)
     VALUES ($id, $human_id, $address, $public_key, $wallet_type, $message, $signature)
@@ -318,10 +318,10 @@ action add_wallet($id, $address, $public_key, $message, $signature) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
     $wallet_type = idos_near.determine_wallet_type($address);
 
-    SELECT CASE
-        WHEN $wallet_type = 'NEAR' AND ($public_key IS NULL OR length($public_key) != 52)
-        THEN ERROR('NEAR wallets require a valid public_key to be given.')
-    END;
+    SELECT CASE WHEN $wallet_type = 'NEAR' AND $public_key IS NULL THEN ERROR('NEAR wallets require a public_key to be given.') END;
+
+    $valid_near_public_key = idos_near.is_valid_public_key($public_key);
+    SELECT CASE WHEN $wallet_type = 'NEAR' AND $valid_near_public_key != 1 THEN ERROR('Invalid or unsupported public key.') END;
 
     INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature)
     VALUES (
