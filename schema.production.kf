@@ -265,6 +265,7 @@ action edit_credential($id, $issuer, $credential_type, $credential_level, $crede
                 AND c.human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                     OR (wallet_type = 'NEAR' AND public_key = $converted))
         ) THEN ERROR('Can not edit shared credential') END;
+
     UPDATE credentials
     SET issuer=$issuer, credential_type=$credential_type, credential_level=$credential_level, credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key
     WHERE id=$id
