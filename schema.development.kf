@@ -10,6 +10,11 @@ use idos {
     chain: 'near'
 } as idos_near;
 
+use idos {
+    registry_address: '0x7D11563Bd4aA096CC83Fbe2cdd0557010dd58477',
+    chain: 'arbitrum'
+} as idos_arbitrum;
+
 table humans {
     id text primary minlen(36) maxlen(36) notnull unique //lengths to help enforce uuidv4
 }
@@ -133,6 +138,15 @@ action add_attribute_as_owner($id, $human_id, $attribute_key, $value) owner publ
 @kgw(authn='true')
 action edit_attribute($id, $attribute_key, $value) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    SELECT CASE
+        WHEN (
+            SELECT 1 from human_attributes AS ha
+                INNER JOIN shared_human_attributes AS sha on ha.id = sha.duplicate_id
+                WHERE ha.id = $id
+                AND ha.human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+                    OR (wallet_type = 'NEAR' AND public_key = $converted))
+        ) THEN ERROR('Can not edit shared attribute') END;
+
     UPDATE human_attributes
     SET attribute_key=$attribute_key, value=$value
     WHERE id=$id
@@ -243,6 +257,15 @@ action share_credential($id, $original_credential_id, $issuer, $credential_type,
 @kgw(authn='true')
 action edit_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    SELECT CASE
+        WHEN (
+            SELECT 1 from credentials AS c
+                INNER JOIN shared_credentials AS sc on c.id = sc.duplicate_id
+                WHERE c.id = $id
+                AND c.human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+                    OR (wallet_type = 'NEAR' AND public_key = $converted))
+        ) THEN ERROR('Can not edit shared credential') END;
+
     UPDATE credentials
     SET issuer=$issuer, credential_type=$credential_type, credential_level=$credential_level, credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key
     WHERE id=$id
@@ -285,9 +308,10 @@ action get_credential_owned ($id) public view {
 action get_credential_shared ($id) public view {
     $has_grant_on_eth = idos_eth.has_grants(@caller, $id);
     $has_grant_on_near = idos_near.has_grants(@caller, $id);
+    $has_grant_on_arbitrum = idos_arbitrum.has_grants(@caller, $id);
 
     SELECT CASE
-        WHEN $has_grant_on_eth != 1 AND $has_grant_on_near != 1
+        WHEN $has_grant_on_eth != 1 AND $has_grant_on_near != 1 AND $has_grant_on_arbitrum != 1
         THEN ERROR('caller does not have access') END;
 
     SELECT *
