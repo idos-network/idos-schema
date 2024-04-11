@@ -276,6 +276,13 @@ action edit_credential($id, $issuer, $credential_type, $credential_level, $crede
 
 @kgw(authn='true')
 action remove_credential($id) public {
+    $has_locked_grants_eth = idos_eth.has_locked_grants(@caller, $id);
+    $has_locked_grants_near = idos_near.has_locked_grants(@caller, $id);
+    $has_locked_grants_arbitrum = idos_arbitrum.has_locked_grants(@caller, $id);
+    SELECT CASE
+        WHEN $has_locked_grants_eth = 1 OR $has_locked_grants_near = 1 OR $has_locked_grants_arbitrum = 1
+        THEN ERROR('there are locked grants for this credential') END;
+
     $converted = idos_near.implicit_address_to_public_key(@caller);
     DELETE FROM credentials
     WHERE id=$id
