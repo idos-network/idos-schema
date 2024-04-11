@@ -243,6 +243,15 @@ action share_credential($id, $original_credential_id, $issuer, $credential_type,
 @kgw(authn='true')
 action edit_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
+    SELECT CASE
+        WHEN (
+            SELECT 1 from credentials AS c
+                INNER JOIN shared_credentials AS sc on c.id = sc.duplicate_id
+                WHERE c.id = $id
+                AND c.human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+                    OR (wallet_type = 'NEAR' AND public_key = $converted))
+        ) THEN ERROR('Can not edit shared credential') END;
+
     UPDATE credentials
     SET issuer=$issuer, credential_type=$credential_type, credential_level=$credential_level, credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key
     WHERE id=$id
