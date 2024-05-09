@@ -24,6 +24,7 @@ table human_attributes {
     human_id text minlen(36) maxlen(36) notnull,
     attribute_key text notnull,
     value text notnull,
+    #human_attributes_human_id index(human_id),
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
@@ -43,6 +44,9 @@ table wallets {
     wallet_type text notnull,
     message text,
     signature text,
+    #wallets_human_id index(human_id),
+    #wallets_evm_scan index(wallet_type, address),
+    #wallets_near_scan index(wallet_type, public_key),
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
@@ -55,6 +59,7 @@ table credentials {
     credential_status text,
     content text notnull,
     encryption_public_key text notnull,
+    #credentials_human_id index(human_id),
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
@@ -66,11 +71,37 @@ table shared_credentials {
     foreign_key (duplicate_id) references credentials(id) on_delete cascade
 }
 
-action add_human_as_owner($id) owner public {
+table delegates {
+    address text primary notnull unique,
+    name text notnull
+}
+
+action add_delegate_as_owner($address, $name) owner public {
+  INSERT INTO delegates (address, name) VALUES ($address, $name);
+}
+
+action delete_delegate_as_owner($address) owner public {
+  DELETE FROM delegates WHERE address=$address;
+}
+
+action authorize_delegate() private {
+    SELECT CASE
+        WHEN NOT EXISTS(SELECT 1 FROM delegates WHERE address = @caller collate nocase)
+        THEN ERROR('Unauthorized writer: ' || @caller)
+    END;
+}
+
+action add_human_as_owner($id) public {
+    authorize_delegate();
+
     INSERT INTO humans (id) VALUES ($id);
 }
 
-action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $wallet_type, $message, $signature) owner public {
+action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $wallet_type, $message, $signature) public {
+    authorize_delegate();
+
+    INSERT INTO humans (id) VALUES ($human_id) ON CONFLICT(id) DO NOTHING;
+
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $public_key IS NULL THEN ERROR('NEAR wallets require a public_key to be given.') END;
 
     $valid_near_public_key = idos_near.is_valid_public_key($public_key);
@@ -82,18 +113,26 @@ action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $wallet_typ
     SET human_id=$human_id, address=$address, public_key=$public_key, wallet_type=$wallet_type, message=$message, signature=$signature;
 }
 
-action upsert_credential_as_owner($id, $human_id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) owner public {
+action upsert_credential_as_owner($id, $human_id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
+    authorize_delegate();
+
+    INSERT INTO humans (id) VALUES ($human_id) ON CONFLICT(id) DO NOTHING;
+
     INSERT INTO credentials (id, human_id, issuer, credential_type, credential_level, credential_status, content, encryption_public_key)
     VALUES ($id, $human_id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key)
     ON CONFLICT(id) DO UPDATE
     SET issuer=$issuer, credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key;
 }
 
-action delete_human_as_owner($id) owner public { //for testing period, for not to drop a DB if we need to clear it
+action delete_human_as_owner($id) public { //for testing period, for not to drop a DB if we need to clear it
+    authorize_delegate();
+
     DELETE FROM humans WHERE id=$id;
 }
 
-action delete_wallet_as_owner($id) owner public { //temporary, to remove wrong data from initial test period
+action delete_wallet_as_owner($id) public { //temporary, to remove wrong data from initial test period
+    authorize_delegate();
+
     DELETE FROM wallets WHERE id=$id;
 }
 
@@ -125,7 +164,9 @@ action add_attribute($id, $attribute_key, $value) public {
     );
 }
 
-action add_attribute_as_owner($id, $human_id, $attribute_key, $value) owner public {
+action add_attribute_as_owner($id, $human_id, $attribute_key, $value) public {
+    authorize_delegate();
+
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
     VALUES (
         $id,
@@ -336,12 +377,16 @@ action share_attribute($id, $original_attribute_id, $attribute_key, $value) publ
     VALUES ($original_attribute_id, $id);
 }
 
-action add_shared_credential($original_id, $duplicate_id) owner public {
+action add_shared_credential($original_id, $duplicate_id) public {
+    authorize_delegate();
+
     INSERT INTO shared_credentials (original_id, duplicate_id)
     VALUES ($original_id, $duplicate_id);
 }
 
-action add_shared_attribute($original_id, $duplicate_id) owner public {
+action add_shared_attribute($original_id, $duplicate_id) public {
+    authorize_delegate();
+
     INSERT INTO shared_human_attributes (original_id, duplicate_id)
     VALUES ($original_id, $duplicate_id);
 }
