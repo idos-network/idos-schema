@@ -407,9 +407,3 @@ action add_wallet($id, $address, $public_key, $message, $signature) public {
         $signature
     );
 }
-
-@kgw(authn='true')
-action get_me() public view {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
-    SELECT @caller as caller, $converted as converted;
-}
