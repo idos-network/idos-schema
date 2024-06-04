@@ -87,7 +87,7 @@ action delete_delegate_as_owner($address) owner public {
 action authorize_delegate() private {
     SELECT CASE
         WHEN NOT EXISTS(SELECT 1 FROM delegates WHERE address = @caller collate nocase)
-        THEN ERROR('Unauthorized writer: ' || @caller)
+        THEN ERROR('Unauthorized writer')
     END;
 }
 
