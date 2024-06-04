@@ -178,7 +178,7 @@ action add_attribute_as_owner($id, $human_id, $attribute_key, $value) public {
 action edit_attribute($id, $attribute_key, $value) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
     SELECT CASE
-        WHEN (
+        WHEN EXISTS (
             SELECT 1 from human_attributes AS ha
                 INNER JOIN shared_human_attributes AS sha on ha.id = sha.duplicate_id
                 WHERE ha.id = $id
@@ -225,7 +225,7 @@ action remove_wallet($id) public {
 }
 
 action has_profile($address) public view {
-    SELECT EXISTS(
+    SELECT EXISTS (
         SELECT 1 FROM wallets WHERE address=$address COLLATE NOCASE
     ) AS has_profile;
 }
@@ -292,7 +292,7 @@ action share_credential($id, $original_credential_id, $issuer, $credential_type,
 action edit_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
     SELECT CASE
-        WHEN (
+        WHEN EXISTS (
             SELECT 1 from credentials AS c
                 INNER JOIN shared_credentials AS sc on c.id = sc.duplicate_id
                 WHERE c.id = $id
