@@ -1,12 +1,12 @@
 database idos;
 
 use idos {
-    registry_address: '0xd75fE3089a983fDB28a18BaB3ff625a6a49C0C00',
+    registry_address: '0x827310fF816EfD65406a40cb1358cc82Bc2F5cF9',
     chain: 'eth'
 } as idos_eth;
 
 use idos {
-    registry_address: 'idos-dev-1.testnet',
+    registry_address: 'idos-dev-4.testnet',
     chain: 'near'
 } as idos_near;
 
@@ -86,8 +86,8 @@ action delete_delegate_as_owner($address) owner public {
 
 action authorize_delegate() private {
     SELECT CASE
-        WHEN NOT EXISTS(SELECT 1 FROM delegates WHERE address = @caller collate nocase)
-        THEN ERROR('Unauthorized writer: ' || @caller)
+        WHEN NOT EXISTS (SELECT 1 FROM delegates WHERE address = @caller COLLATE NOCASE)
+        THEN ERROR('Unauthorized writer')
     END;
 }
 
