@@ -94,7 +94,7 @@ action authorize_delegate() private {
 action add_human_as_owner($id) public {
     authorize_delegate();
 
-    INSERT INTO humans (id) VALUES ($id);
+    INSERT INTO humans (id) VALUES ($id) ON CONFLICT(id) DO NOTHING;
 }
 
 action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $wallet_type, $message, $signature) public {
