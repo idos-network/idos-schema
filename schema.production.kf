@@ -1,7 +1,7 @@
 database idos;
 
 use idos {
-    registry_address: '0x73de8f45c0dFDf59C56a93B483246AC113a1f922',
+    registry_address: '0xA5Ac9B9703Bd661cd2aC05B41FE57d1A5DD332AA',
     chain: 'eth'
 } as idos_eth;
 
@@ -11,7 +11,7 @@ use idos {
 } as idos_near;
 
 use idos {
-    registry_address: '0x7D11563Bd4aA096CC83Fbe2cdd0557010dd58477',
+    registry_address: '0x350829c8FCb3DF16EeaE9ADDa2565090348426f9',
     chain: 'arbitrum'
 } as idos_arbitrum;
 
