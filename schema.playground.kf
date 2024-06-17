@@ -15,6 +15,11 @@ use idos {
     chain: 'arbitrum'
 } as idos_arbitrum;
 
+use idos {
+    registry_address: '0xeed5537b68baD728A3Bb433d8e06ebab81ac0EAB',
+    chain: 'etherlink'
+} as idos_etherlink;
+
 table humans {
     id text primary minlen(36) maxlen(36) notnull unique //lengths to help enforce uuidv4
 }
@@ -312,8 +317,9 @@ action remove_credential($id) public {
     $has_locked_grants_eth = idos_eth.has_locked_grants(@caller, $id);
     $has_locked_grants_near = idos_near.has_locked_grants(@caller, $id);
     $has_locked_grants_arbitrum = idos_arbitrum.has_locked_grants(@caller, $id);
+    $has_locked_grants_etherlink = idos_etherlink.has_locked_grants(@caller, $id);
     SELECT CASE
-        WHEN $has_locked_grants_eth = 1 OR $has_locked_grants_near = 1 OR $has_locked_grants_arbitrum = 1
+        WHEN $has_locked_grants_eth = 1 OR $has_locked_grants_near = 1 OR $has_locked_grants_arbitrum = 1 OR $has_locked_grants_etherlink = 1
         THEN ERROR('there are locked grants for this credential') END;
 
     $converted = idos_near.implicit_address_to_public_key(@caller);
@@ -342,9 +348,10 @@ action get_credential_shared ($id) public view {
     $has_grant_on_eth = idos_eth.has_grants(@caller, $id);
     $has_grant_on_near = idos_near.has_grants(@caller, $id);
     $has_grant_on_arbitrum = idos_arbitrum.has_grants(@caller, $id);
+    $has_grant_on_etherlink = idos_etherlink.has_grants(@caller, $id);
 
     SELECT CASE
-        WHEN $has_grant_on_eth != 1 AND $has_grant_on_near != 1 AND $has_grant_on_arbitrum != 1
+        WHEN $has_grant_on_eth != 1 AND $has_grant_on_near != 1 AND $has_grant_on_arbitrum != 1 AND $has_grant_on_etherlink != 1
         THEN ERROR('caller does not have access') END;
 
     SELECT *
