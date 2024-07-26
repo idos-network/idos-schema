@@ -1,19 +1,6 @@
 database idos;
 
-use idos {
-    registry_address: '0xd75fE3089a983fDB28a18BaB3ff625a6a49C0C00',
-    chain: 'eth'
-} as idos_eth;
-
-use idos {
-    registry_address: 'idos-dev-4.testnet',
-    chain: 'near'
-} as idos_near;
-
-use idos {
-    registry_address: '0x7D11563Bd4aA096CC83Fbe2cdd0557010dd58477',
-    chain: 'arbitrum'
-} as idos_arbitrum;
+use idos as idos;
 
 table humans {
     id text primary minlen(36) maxlen(36) notnull unique //lengths to help enforce uuidv4
@@ -114,7 +101,7 @@ action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $wallet_typ
 
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $public_key::TEXT IS NULL THEN ERROR('NEAR wallets require a public_key to be given.') END;
 
-    $valid_near_public_key = idos_near.is_valid_public_key($public_key);
+    $valid_near_public_key = idos.is_valid_public_key($public_key);
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $valid_near_public_key != 1 THEN ERROR('Invalid or unsupported public key.') END;
 
     INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature)
@@ -148,7 +135,7 @@ action delete_wallet_as_owner($id) public { //temporary, to remove wrong data fr
 
 @kgw(authn='true')
 action get_attributes() public view {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
 	SELECT DISTINCT ha.id, ha.human_id, ha.attribute_key, ha.value, sha.original_id AS original_id
     FROM human_attributes AS ha
     LEFT JOIN shared_human_attributes AS sha ON ha.id = sha.duplicate_id
@@ -161,7 +148,7 @@ action get_attributes() public view {
 }
 
 action add_attribute($id, $attribute_key, $value) public {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
     VALUES (
         $id,
@@ -186,7 +173,7 @@ action add_attribute_as_owner($id, $human_id, $attribute_key, $value) public {
 }
 
 action edit_attribute($id, $attribute_key, $value) public {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     SELECT CASE
         WHEN EXISTS (
             SELECT 1 from human_attributes AS ha
@@ -205,7 +192,7 @@ action edit_attribute($id, $attribute_key, $value) public {
 }
 
 action remove_attribute($id) public {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     DELETE FROM human_attributes
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
@@ -215,7 +202,7 @@ action remove_attribute($id) public {
 
 @kgw(authn='true')
 action get_wallets() public view {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     SELECT DISTINCT w1.*
     FROM wallets AS w1
     INNER JOIN wallets AS w2 ON w1.human_id = w2.human_id
@@ -227,7 +214,7 @@ action get_wallets() public view {
 }
 
 action remove_wallet($id) public {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     DELETE FROM wallets
     WHERE id=$id AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = $converted)
@@ -242,7 +229,7 @@ action has_profile($address) public view {
 
 @kgw(authn='true')
 action get_wallet_human_id() public view {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     SELECT DISTINCT human_id FROM wallets
     WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = $converted);
@@ -250,7 +237,7 @@ action get_wallet_human_id() public view {
 
 @kgw(authn='true')
 action get_credentials() public view {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
 	SELECT DISTINCT c.id, c.human_id, c.issuer, c.credential_type, c.credential_level, c.credential_status, sc.original_id AS original_id
     FROM credentials AS c
     LEFT JOIN shared_credentials AS sc ON c.id = sc.duplicate_id
@@ -263,7 +250,7 @@ action get_credentials() public view {
 }
 
 action add_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     INSERT INTO credentials (id, human_id, issuer, credential_type, credential_level, credential_status, content, encryption_public_key)
     VALUES (
         $id,
@@ -280,7 +267,7 @@ action add_credential($id, $issuer, $credential_type, $credential_level, $creden
 }
 
 action share_credential($id, $original_credential_id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     INSERT INTO credentials (id, human_id, issuer, credential_type, credential_level, credential_status, content, encryption_public_key)
     VALUES (
         $id,
@@ -300,7 +287,7 @@ action share_credential($id, $original_credential_id, $issuer, $credential_type,
 }
 
 action edit_credential($id, $issuer, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     SELECT CASE
         WHEN EXISTS (
             SELECT 1 from credentials AS c
@@ -319,14 +306,13 @@ action edit_credential($id, $issuer, $credential_type, $credential_level, $crede
 }
 
 action remove_credential($id) public {
-    $has_locked_grants_eth = idos_eth.has_locked_grants(@caller, $id);
-    $has_locked_grants_near = idos_near.has_locked_grants(@caller, $id);
-    $has_locked_grants_arbitrum = idos_arbitrum.has_locked_grants(@caller, $id);
+    $current_time = idos.current_time();
     SELECT CASE
-        WHEN $has_locked_grants_eth = 1 OR $has_locked_grants_near = 1 OR $has_locked_grants_arbitrum = 1
-        THEN ERROR('there are locked grants for this credential') END;
+        WHEN has_locked_grants($id, $current_time)
+        THEN ERROR('there are locked grants for this credential')
+        END;
 
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     DELETE FROM credentials
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
@@ -336,7 +322,7 @@ action remove_credential($id) public {
 
 @kgw(authn='true')
 action get_credential_owned ($id) public view {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     SELECT DISTINCT credentials.*
     FROM credentials
     INNER JOIN wallets ON credentials.human_id = wallets.human_id
@@ -348,16 +334,25 @@ action get_credential_owned ($id) public view {
 }
 
 @kgw(authn='true')
-action get_credential_shared ($id) public view {
-    has_grants($id);
+procedure has_grant($id text) public view returns (bool1 bool) {
+    for $row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee = @caller {
+        return true;
+    }
+    return false;
+}
 
-    SELECT *
-    FROM credentials
-    WHERE id = $id;
+@kgw(authn='true')
+action get_credential_shared ($id) public view {
+    SELECT CASE
+        WHEN NOT has_grant($id)
+        THEN ERROR('caller does not have access')
+        END;
+
+    SELECT * FROM credentials WHERE id = $id;
 }
 
 action share_attribute($id, $original_attribute_id, $attribute_key, $value) public {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
+    $converted = idos.implicit_address_to_public_key(@caller);
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
     VALUES (
         $id,
@@ -387,12 +382,12 @@ action add_shared_attribute($original_id, $duplicate_id) public {
 }
 
 action add_wallet($id, $address, $public_key, $message, $signature) public {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
-    $wallet_type = idos_near.determine_wallet_type($address);
+    $converted = idos.implicit_address_to_public_key(@caller);
+    $wallet_type = idos.determine_wallet_type($address);
 
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $public_key::TEXT IS NULL THEN ERROR('NEAR wallets require a public_key to be given.') END;
 
-    $valid_near_public_key = idos_near.is_valid_public_key($public_key);
+    $valid_near_public_key = idos.is_valid_public_key($public_key);
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $valid_near_public_key != 1 THEN ERROR('Invalid or unsupported public key.') END;
 
     INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature)
@@ -410,19 +405,4 @@ action add_wallet($id, $address, $public_key, $message, $signature) public {
         $message,
         $signature
     );
-}
-
-@kgw(authn='true')
-action has_grants($id) public view {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
-    SELECT
-        CASE
-        WHEN EXISTS (
-            SELECT 1 FROM access_grants
-                WHERE ag_grantee = @caller COLLATE NOCASE
-                AND data_id = $id
-            )
-        THEN TRUE
-        ELSE ERROR('caller does not have access')
-    END;
 }
