@@ -101,8 +101,8 @@ action upsert_wallet_as_owner($id, $human_id, $address, $public_key, $wallet_typ
 
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $public_key::TEXT IS NULL THEN ERROR('NEAR wallets require a public_key to be given.') END;
 
-    $valid_near_public_key = idos.is_valid_public_key($public_key);
-    SELECT CASE WHEN $wallet_type = 'NEAR' AND $valid_near_public_key != 1 THEN ERROR('Invalid or unsupported public key.') END;
+    $valid_public_key = idos.is_valid_public_key($public_key, $wallet_type);
+    SELECT CASE WHEN $wallet_type = 'NEAR' AND $valid_public_key != 1 THEN ERROR('Invalid or unsupported public key.') END;
 
     INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature)
     VALUES ($id, $human_id, $address, $public_key, $wallet_type, $message, $signature)
@@ -320,6 +320,13 @@ action remove_credential($id) public {
     );
 }
 
+procedure has_locked_grants($id text, $current_time int) public view returns (bool1 bool) {
+    for $row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_owner = @caller COLLATE NOCASE AND locked_until >= $current_time {
+        return true;
+    }
+    return false;
+}
+
 @kgw(authn='true')
 action get_credential_owned ($id) public view {
     $converted = idos.implicit_address_to_public_key(@caller);
@@ -335,7 +342,7 @@ action get_credential_owned ($id) public view {
 
 @kgw(authn='true')
 procedure has_grant($id text) public view returns (bool1 bool) {
-    for $row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee = @caller {
+    for $row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee = @caller COLLATE NOCASE {
         return true;
     }
     return false;
@@ -387,8 +394,8 @@ action add_wallet($id, $address, $public_key, $message, $signature) public {
 
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $public_key::TEXT IS NULL THEN ERROR('NEAR wallets require a public_key to be given.') END;
 
-    $valid_near_public_key = idos.is_valid_public_key($public_key);
-    SELECT CASE WHEN $wallet_type = 'NEAR' AND $valid_near_public_key != 1 THEN ERROR('Invalid or unsupported public key.') END;
+    $valid_public_key = idos.is_valid_public_key($public_key, $wallet_type);
+    SELECT CASE WHEN $wallet_type = 'NEAR' AND $valid_public_key != 1 THEN ERROR('Invalid or unsupported public key.') END;
 
     INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature)
     VALUES (
