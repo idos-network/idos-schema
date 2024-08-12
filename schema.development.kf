@@ -98,7 +98,7 @@ procedure remove_issuer_as_owner($id uuid) owner public {
     DELETE FROM issuers WHERE id = $id;
 }
 
-procedure add_delegate_as_owner($address text, $issuer_id uuid) owner public {
+procedure add_delegate_as_owner($issuer_id uuid, $address text) owner public {
   INSERT INTO delegates (issuer_id, address) VALUES ($issuer_id, $address);
 }
 
