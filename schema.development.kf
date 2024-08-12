@@ -53,8 +53,8 @@ table wallets {
     signature text,
     issuer text notnull,
     #wallets_human_id index(human_id),
-    #wallets_evm_scan index(wallet_type, address),
-    #wallets_near_scan index(wallet_type, public_key),
+    #wallets_evm_scan unique(wallet_type, address),
+    #wallets_near_scan unique(wallet_type, public_key),
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
