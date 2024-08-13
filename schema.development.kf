@@ -114,11 +114,11 @@ procedure delete_delegate_as_owner($address text) owner public {
   DELETE FROM delegates WHERE address=$address;
 }
 
-procedure get_issuer() private returns (name text) {
+procedure get_issuer() private view returns (name text) {
     for $row in SELECT issuers.name FROM issuers INNER JOIN delegates ON issuers.id = delegates.issuer_id WHERE delegates.address = @caller {
         return $row.name;
     }
-    error('Unauthorized writer');
+    error('Unauthorized issuer');
 }
 
 
@@ -317,6 +317,15 @@ procedure share_credential_as_issuer (
     upsert_credential_as_issuer($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key);
 
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+}
+
+@kgw(authn='true')
+procedure credential_exist_as_issuer($id uuid) public view returns (credential_exist bool) {
+    get_issuer();
+    for $row in SELECT 1 FROM credentials WHERE id = $id {
+        return true;
+    }
+    return false;
 }
 
 // TODO: remove it, use share_credential_as_issuer instead
