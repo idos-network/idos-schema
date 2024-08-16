@@ -328,14 +328,6 @@ procedure credential_exist_as_issuer($id uuid) public view returns (credential_e
     return false;
 }
 
-// TODO: remove it, use share_credential_as_issuer instead
-procedure add_shared_credential_as_issuer($original_id uuid, $duplicate_id uuid) public {
-    get_issuer();
-
-    INSERT INTO shared_credentials (original_id, duplicate_id)
-    VALUES ($original_id, $duplicate_id);
-}
-
 @kgw(authn='true')
 action get_credential_owned ($id) public view {
     $converted = idos_near.implicit_address_to_public_key(@caller);
