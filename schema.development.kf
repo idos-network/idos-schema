@@ -217,12 +217,14 @@ procedure upsert_credential_as_issuer(
         $credential_level text,
         $credential_status text,
         $content text,
-        $encryption_public_key text) public {
+        $encryption_public_key text) public returns (bool) {
     $issuer text := get_issuer();
     INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer)
     VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer)
     ON CONFLICT(id) DO UPDATE
     SET credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key, issuer=$issuer;
+
+    return true; // dummy return value is needed when the procedure is called from an action like `SELECT procedure_call()`;
 }
 
 action add_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
@@ -313,15 +315,19 @@ action share_credential(
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 }
 
-procedure share_credential_as_issuer (
-        $id uuid,
-        $human_id uuid,
-        $original_credential_id uuid,
-        $credential_type text,
-        $credential_level text,
-        $credential_status text,
-        $content text,
-        $encryption_public_key text) public {
+action share_credential_as_issuer (
+        $id,
+        $human_id,
+        $original_credential_id,
+        $credential_type,
+        $credential_level,
+        $credential_status,
+        $content,
+        $encryption_public_key,
+        $dag_owner,
+        $dag_grantee,
+        $dag_locked_until,
+        $dag_signature) public {
     SELECT CASE
     WHEN NOT EXISTS (
         SELECT 1 from credentials
@@ -329,7 +335,22 @@ procedure share_credential_as_issuer (
             AND human_id = $human_id
     ) THEN ERROR('The original credential does not belong to the human') END;
 
-    upsert_credential_as_issuer($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key);
+    $owner_verified = idos_eth.verify_owner($dag_owner, $dag_grantee, $id, $dag_locked_until, $dag_signature);
+    SELECT CASE
+        WHEN $owner_verified != 1 THEN ERROR('the signature is invalid')
+    END;
+
+    SELECT CASE
+    WHEN NOT EXISTS (
+        SELECT 1 from humans
+            INNER JOIN wallets ON humans.id = wallets.human_id
+            WHERE wallet_type = 'EVM'
+            AND address=$dag_owner COLLATE NOCASE
+            AND human_id = $human_id
+    ) THEN ERROR('the DAG is not signed by the human') END;
+
+    // This is the ugly way of calling a procedure from an action. Also the procedure must return something.
+    SELECT upsert_credential_as_issuer($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key);
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 }
 
