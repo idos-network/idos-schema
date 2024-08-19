@@ -56,7 +56,7 @@ table wallets {
     wallet_type text notnull,
     message text,
     signature text,
-    issuer text notnull,
+    issuer text,
     #wallets_human_id index(human_id),
     #wallets_evm_scan unique(wallet_type, address),
     #wallets_near_scan unique(wallet_type, public_key),
