@@ -71,7 +71,7 @@ table credentials {
     credential_status text,
     content text notnull,
     encryption_public_key text notnull,
-    issuer text notnull,
+    issuer text,
     #credentials_human_id index(human_id),
     foreign_key (human_id) references humans(id) on_delete cascade
 }
