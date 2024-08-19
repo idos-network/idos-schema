@@ -30,24 +30,6 @@ table humans {
     issuer text notnull
 }
 
-table human_attributes {
-    id uuid primary,
-    human_id uuid notnull,
-    attribute_key text notnull,
-    value text notnull,
-    issuer text,
-    #human_attributes_human_id index(human_id),
-    foreign_key (human_id) references humans(id) on_delete cascade
-}
-
-table shared_human_attributes {
-    original_id uuid notnull,
-    duplicate_id uuid notnull,
-    #primary_key primary(original_id, duplicate_id),
-    foreign_key (original_id) references human_attributes(id) on_delete cascade,
-    foreign_key (duplicate_id) references human_attributes(id) on_delete cascade
-}
-
 table wallets {
     id uuid primary,
     human_id uuid notnull,
@@ -82,6 +64,24 @@ table shared_credentials {
     #primary_key primary(original_id, duplicate_id),
     foreign_key (original_id) references credentials(id) on_delete cascade,
     foreign_key (duplicate_id) references credentials(id) on_delete cascade
+}
+
+table human_attributes {
+    id uuid primary,
+    human_id uuid notnull,
+    attribute_key text notnull,
+    value text notnull,
+    issuer text,
+    #human_attributes_human_id index(human_id),
+    foreign_key (human_id) references humans(id) on_delete cascade
+}
+
+table shared_human_attributes {
+    original_id uuid notnull,
+    duplicate_id uuid notnull,
+    #primary_key primary(original_id, duplicate_id),
+    foreign_key (original_id) references human_attributes(id) on_delete cascade,
+    foreign_key (duplicate_id) references human_attributes(id) on_delete cascade
 }
 
 table issuers {
