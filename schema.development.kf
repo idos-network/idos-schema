@@ -197,7 +197,7 @@ action remove_wallet($id) public {
     SELECT CASE
     WHEN EXISTS (SELECT count(id) FROM wallets
         WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE) OR (wallet_type = 'NEAR' AND public_key = $converted)
-        GROUP BY address HAVING count(id) > 0)
+        GROUP BY address HAVING count(id) = 1)
     THEN ERROR('Can not delete the sole wallet')
     END;
 
