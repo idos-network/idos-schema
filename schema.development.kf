@@ -91,7 +91,7 @@ table issuers {
 
 table delegates {
     issuer_id uuid notnull,
-    address text primary notnull unique,
+    address text primary,
     foreign_key (issuer_id) references issuers(id) on_delete cascade
 }
 
