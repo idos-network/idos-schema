@@ -128,7 +128,7 @@ procedure add_human_as_issuer($id uuid) public {
     INSERT INTO humans (id, issuer) VALUES ($id, get_issuer());
 }
 
-// For development, for not to drop a DB if we need to clear it. SHould not be in prod envs.
+// For development, for not to drop a DB if we need to clear it. Should not be in prod envs.
 procedure delete_human_as_owner($id uuid) public owner {
     DELETE FROM humans WHERE id=$id;
 }
