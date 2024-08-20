@@ -106,8 +106,8 @@ procedure delete_issuer_as_owner($id uuid) owner public {
     DELETE FROM issuers WHERE id = $id;
 }
 
-procedure add_delegate_as_owner($issuer_id uuid, $address text) owner public {
-  INSERT INTO delegates (issuer_id, address) VALUES ($issuer_id, $address);
+procedure add_delegate_as_owner($address text, $issuer_id uuid) owner public {
+  INSERT INTO delegates (address, issuer_id) VALUES ($address, $issuer_id);
 }
 
 procedure delete_delegate_as_owner($address text) owner public {
@@ -487,4 +487,40 @@ action get_wallet_human_id() public view {
     SELECT DISTINCT human_id FROM wallets
     WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = $converted);
+}
+
+// OWNER ACTIONS FOR MIGRATIONS
+
+procedure insert_human_as_owner($id uuid, $issuer text) owner public {
+    INSERT INTO humans (id, issuer)
+    VALUES ($id, $issuer);
+}
+
+procedure insert_wallet_as_owner($id uuid, $human_id uuid, $address text, $public_key text, $wallet_type text,
+$message text, $signature text, $issuer text) owner public {
+    INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature, issuer)
+    VALUES ($id, $human_id, $address, $public_key, $wallet_type, $message, $signature, $issuer);
+}
+
+procedure insert_credential_as_owner($id uuid, $human_id uuid, $credential_type text, $credential_level text,
+$credential_status text, $content text, $encryption_public_key text, $issuer text) owner public {
+    INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content,
+    encryption_public_key, issuer)
+    VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content,
+    $encryption_public_key, $issuer);
+}
+
+procedure insert_shared_cred_as_owner($original_id uuid, $duplicate_id uuid) owner public {
+    INSERT INTO shared_credentials (original_id, duplicate_id)
+    VALUES ($original_id, $duplicate_id);
+}
+
+procedure insert_human_attribute_as_owner($id uuid, $human_id uuid, $attribute_key text, $value text, $issuer text) owner public {
+    INSERT INTO human_attributes (id, human_id, attribute_key, value, issuer)
+    VALUES ($id, $human_id, $attribute_key, $value, $issuer);
+}
+
+procedure insert_shared_attr_as_owner($original_id uuid, $duplicate_id uuid) owner public {
+    INSERT INTO shared_human_attributes (original_id, duplicate_id)
+    VALUES ($original_id, $duplicate_id);
 }
