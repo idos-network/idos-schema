@@ -26,7 +26,7 @@ use idos {
 
 table humans {
     id uuid primary,
-    issuer text notnull
+    inserter text notnull
 }
 
 table wallets {
@@ -37,7 +37,7 @@ table wallets {
     wallet_type text notnull,
     message text,
     signature text,
-    issuer text,
+    inserter text,
     #wallets_human_id index(human_id),
     #wallets_evm_scan unique(wallet_type, address),
     #wallets_near_scan unique(wallet_type, public_key),
@@ -52,7 +52,8 @@ table credentials {
     credential_status text,
     content text notnull,
     encryption_public_key text notnull,
-    issuer text,
+    issuer text notnull,
+    inserter text,
     #credentials_human_id index(human_id),
     foreign_key (human_id) references humans(id) on_delete cascade
 }
@@ -70,7 +71,7 @@ table human_attributes {
     human_id uuid notnull,
     attribute_key text notnull,
     value text notnull,
-    issuer text,
+    inserter text,
     #human_attributes_human_id index(human_id),
     foreign_key (human_id) references humans(id) on_delete cascade
 }
@@ -83,45 +84,45 @@ table shared_human_attributes {
     foreign_key (duplicate_id) references human_attributes(id) on_delete cascade
 }
 
-table issuers {
+table inserters {
     id uuid primary,
     name text unique notnull
 }
 
 table delegates {
     address text primary,
-    issuer_id uuid notnull,
-    foreign_key (issuer_id) references issuers(id) on_delete cascade
+    inserter_id uuid notnull,
+    foreign_key (inserter_id) references inserters(id) on_delete cascade
 }
 
 
-// ISSUER AND DELEGATE ACTIONS
+// inserter AND DELEGATE ACTIONS
 
-procedure add_issuer_as_owner($id uuid, $name text) owner public {
-    INSERT INTO issuers (id, name) VALUES ($id, $name);
+procedure add_inserter_as_owner($id uuid, $name text) owner public {
+    INSERT INTO inserters (id, name) VALUES ($id, $name);
 }
 
-procedure delete_issuer_as_owner($id uuid) owner public {
-    DELETE FROM issuers WHERE id = $id;
+procedure delete_inserter_as_owner($id uuid) owner public {
+    DELETE FROM inserters WHERE id = $id;
 }
 
-procedure add_delegate_as_owner($address text, $issuer_id uuid) owner public {
-  INSERT INTO delegates (address, issuer_id) VALUES ($address, $issuer_id);
+procedure add_delegate_as_owner($address text, $inserter_id uuid) owner public {
+  INSERT INTO delegates (address, inserter_id) VALUES ($address, $inserter_id);
 }
 
 procedure delete_delegate_as_owner($address text) owner public {
   DELETE FROM delegates WHERE address=$address;
 }
 
-procedure get_issuer() private view returns (name text) {
-    for $row in SELECT issuers.name FROM issuers INNER JOIN delegates ON issuers.id = delegates.issuer_id WHERE delegates.address = @caller {
+procedure get_inserter() private view returns (name text) {
+    for $row in SELECT inserters.name FROM inserters INNER JOIN delegates ON inserters.id = delegates.inserter_id WHERE delegates.address = @caller {
         return $row.name;
     }
-    error('Unauthorized issuer');
+    error('Unauthorized inserter');
 }
 
-procedure get_issuer_or_null() private view returns (name text) {
-    for $row in SELECT issuers.name FROM issuers INNER JOIN delegates ON issuers.id = delegates.issuer_id WHERE delegates.address = @caller {
+procedure get_inserter_or_null() private view returns (name text) {
+    for $row in SELECT inserters.name FROM inserters INNER JOIN delegates ON inserters.id = delegates.inserter_id WHERE delegates.address = @caller {
         return $row.name;
     }
     return null;
@@ -129,8 +130,8 @@ procedure get_issuer_or_null() private view returns (name text) {
 
 // HUMAN ACTIONS
 
-procedure add_human_as_issuer($id uuid) public {
-    INSERT INTO humans (id, issuer) VALUES ($id, get_issuer());
+procedure add_human_as_inserter($id uuid) public {
+    INSERT INTO humans (id, inserter) VALUES ($id, get_inserter());
 }
 
 // For development, for not to drop a DB if we need to clear it. Should not be in prod envs.
@@ -141,16 +142,16 @@ procedure delete_human_as_owner($id uuid) public owner {
 
 // WALLET ACTIONS
 
-action upsert_wallet_as_issuer($id, $human_id, $address, $public_key, $wallet_type, $message, $signature) public {
+action upsert_wallet_as_inserter($id, $human_id, $address, $public_key, $wallet_type, $message, $signature) public {
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $public_key::TEXT IS NULL THEN ERROR('NEAR wallets require a public_key to be given.') END;
 
     $valid_near_public_key = idos_near.is_valid_public_key($public_key);
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $valid_near_public_key != 1 THEN ERROR('Invalid or unsupported public key.') END;
 
-    INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature, issuer)
-    VALUES ($id, $human_id, $address, $public_key, $wallet_type, $message, $signature, get_issuer())
+    INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature, inserter)
+    VALUES ($id, $human_id, $address, $public_key, $wallet_type, $message, $signature, get_inserter())
     ON CONFLICT(id) DO UPDATE
-    SET human_id=$human_id, address=$address, public_key=$public_key, wallet_type=$wallet_type, message=$message, signature=$signature, issuer=get_issuer();
+    SET human_id=$human_id, address=$address, public_key=$public_key, wallet_type=$wallet_type, message=$message, signature=$signature, inserter=get_inserter();
 }
 
 // Temporary, to remove wrong data from initial test period. Owner only.
@@ -215,26 +216,27 @@ action remove_wallet($id) public {
 
 // CREDENTIAL ACTIONS
 
-procedure upsert_credential_as_issuer(
+procedure upsert_credential_as_inserter(
         $id uuid,
         $human_id uuid,
         $credential_type text,
         $credential_level text,
         $credential_status text,
         $content text,
-        $encryption_public_key text) public returns (bool) {
-    $issuer text := get_issuer();
-    INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer)
-    VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer)
+        $encryption_public_key text,
+        $issuer text) public returns (bool) {
+    $inserter text := get_inserter();
+    INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
+    VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, $inserter)
     ON CONFLICT(id) DO UPDATE
-    SET credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key, issuer=$issuer;
+    SET credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key, issuer=$issuer, inserter=$inserter;
 
     return true; // dummy return value is needed when the procedure is called from an action like `SELECT procedure_call()`;
 }
 
-action add_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
+action add_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
-    INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key)
+    INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer)
     VALUES (
         $id,
         (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
@@ -244,14 +246,15 @@ action add_credential($id, $credential_type, $credential_level, $credential_stat
         $credential_level,
         $credential_status,
         $content,
-        $encryption_public_key
+        $encryption_public_key,
+        $issuer
     );
 }
 
 @kgw(authn='true')
 action get_credentials() public view {
     $converted = idos_near.implicit_address_to_public_key(@caller);
-	SELECT DISTINCT c.id, c.human_id, c.issuer, c.credential_type, c.credential_level, c.credential_status, sc.original_id AS original_id
+	SELECT DISTINCT c.id, c.human_id, c.inserter, c.credential_type, c.credential_level, c.credential_status, sc.original_id AS original_id
     FROM credentials AS c
     LEFT JOIN shared_credentials AS sc ON c.id = sc.duplicate_id
     INNER JOIN wallets ON c.human_id = wallets.human_id
@@ -262,7 +265,7 @@ action get_credentials() public view {
     );
 }
 
-action edit_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key) public {
+action edit_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
     SELECT CASE
         WHEN EXISTS (
@@ -275,7 +278,7 @@ action edit_credential($id, $credential_type, $credential_level, $credential_sta
 
     UPDATE credentials
     SET credential_type=$credential_type, credential_level=$credential_level, credential_status=$credential_status,
-        content=$content, encryption_public_key=$encryption_public_key
+        content=$content, encryption_public_key=$encryption_public_key, issuer=$issuer
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = $converted)
@@ -306,7 +309,8 @@ action share_credential(
         $credential_level,
         $credential_status,
         $content,
-        $encryption_public_key) public {
+        $encryption_public_key,
+        $issuer) public {
     $converted = idos_near.implicit_address_to_public_key(@caller);
     SELECT CASE
     WHEN NOT EXISTS (
@@ -316,7 +320,7 @@ action share_credential(
                 OR (wallet_type = 'NEAR' AND public_key = $converted))
     ) THEN ERROR('The original credential does not belong to the caller') END;
 
-    add_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key);
+    add_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer);
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 }
 
@@ -329,6 +333,7 @@ action share_credential_through_dag (
         $credential_status,
         $content,
         $encryption_public_key,
+        $issuer,
         $dag_owner,
         $dag_grantee,
         $dag_locked_until,
@@ -354,14 +359,14 @@ action share_credential_through_dag (
             AND human_id = $human_id
     ) THEN ERROR('the DAG is not signed by the human') END;
 
-    INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer)
-        VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, get_issuer_or_null());
+    INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
+        VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, get_inserter_or_null());
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 }
 
 @kgw(authn='true')
-procedure credential_exist_as_issuer($id uuid) public view returns (credential_exist bool) {
-    get_issuer();
+procedure credential_exist_as_inserter($id uuid) public view returns (credential_exist bool) {
+    get_inserter();
     for $row in SELECT 1 FROM credentials WHERE id = $id {
         return true;
     }
@@ -400,9 +405,9 @@ action get_credential_shared ($id) public view {
 
 // ATTRUBITE ACTIONS
 
-procedure add_attribute_as_issuer($id uuid, $human_id uuid, $attribute_key text, $value text) public {
-    INSERT INTO human_attributes (id, human_id, attribute_key, value, issuer)
-    VALUES ($id, $human_id, $attribute_key, $value, get_issuer());
+procedure add_attribute_as_inserter($id uuid, $human_id uuid, $attribute_key text, $value text) public {
+    INSERT INTO human_attributes (id, human_id, attribute_key, value, inserter)
+    VALUES ($id, $human_id, $attribute_key, $value, get_inserter());
 }
 
 action add_attribute($id, $attribute_key, $value) public {
@@ -496,23 +501,23 @@ action get_wallet_human_id() public view {
 
 // OWNER ACTIONS FOR MIGRATIONS
 
-procedure insert_human_as_owner($id uuid, $issuer text) owner public {
-    INSERT INTO humans (id, issuer)
-    VALUES ($id, $issuer);
+procedure insert_human_as_owner($id uuid, $inserter text) owner public {
+    INSERT INTO humans (id, inserter)
+    VALUES ($id, $inserter);
 }
 
 procedure insert_wallet_as_owner($id uuid, $human_id uuid, $address text, $public_key text, $wallet_type text,
-$message text, $signature text, $issuer text) owner public {
-    INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature, issuer)
-    VALUES ($id, $human_id, $address, $public_key, $wallet_type, $message, $signature, $issuer);
+$message text, $signature text, $inserter text) owner public {
+    INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature, inserter)
+    VALUES ($id, $human_id, $address, $public_key, $wallet_type, $message, $signature, $inserter);
 }
 
 procedure insert_credential_as_owner($id uuid, $human_id uuid, $credential_type text, $credential_level text,
-$credential_status text, $content text, $encryption_public_key text, $issuer text) owner public {
+$credential_status text, $content text, $encryption_public_key text, $issuer text, $inserter text) owner public {
     INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content,
-    encryption_public_key, issuer)
+    encryption_public_key, issuer, inserter)
     VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content,
-    $encryption_public_key, $issuer);
+    $encryption_public_key, $issuer, $inserter);
 }
 
 procedure insert_shared_cred_as_owner($original_id uuid, $duplicate_id uuid) owner public {
@@ -520,9 +525,9 @@ procedure insert_shared_cred_as_owner($original_id uuid, $duplicate_id uuid) own
     VALUES ($original_id, $duplicate_id);
 }
 
-procedure insert_human_attribute_as_owner($id uuid, $human_id uuid, $attribute_key text, $value text, $issuer text) owner public {
-    INSERT INTO human_attributes (id, human_id, attribute_key, value, issuer)
-    VALUES ($id, $human_id, $attribute_key, $value, $issuer);
+procedure insert_human_attribute_as_owner($id uuid, $human_id uuid, $attribute_key text, $value text, $inserter text) owner public {
+    INSERT INTO human_attributes (id, human_id, attribute_key, value, inserter)
+    VALUES ($id, $human_id, $attribute_key, $value, $inserter);
 }
 
 procedure insert_shared_attr_as_owner($original_id uuid, $duplicate_id uuid) owner public {
