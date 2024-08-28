@@ -528,9 +528,9 @@ action has_profile($address) public view {
 
 // OWNER ACTIONS FOR MIGRATIONS
 
-procedure insert_human_as_owner($id uuid, $inserter text) owner public {
-    INSERT INTO humans (id, inserter)
-    VALUES ($id, $inserter);
+procedure insert_human_as_owner($id uuid, $current_public_key text, $inserter text) owner public {
+    INSERT INTO humans (id, current_public_key, inserter)
+    VALUES ($id, $current_public_key, $inserter);
 }
 
 procedure insert_wallet_as_owner($id uuid, $human_id uuid, $address text, $public_key text, $wallet_type text,
