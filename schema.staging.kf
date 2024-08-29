@@ -26,6 +26,7 @@ use idos {
 
 table humans {
     id uuid primary,
+    current_public_key text notnull,
     inserter text notnull
 }
 
@@ -130,13 +131,45 @@ procedure get_inserter_or_null() private view returns (name text) {
 
 // HUMAN ACTIONS
 
-procedure add_human_as_inserter($id uuid) public {
-    INSERT INTO humans (id, inserter) VALUES ($id, get_inserter());
+procedure add_human_as_inserter($id uuid, $current_public_key text) public {
+    INSERT INTO humans (id, current_public_key, inserter) VALUES ($id, $current_public_key, get_inserter());
+}
+
+procedure update_human_pub_key_as_inserter($id uuid, $current_public_key text) public {
+    get_inserter();
+    UPDATE humans SET current_public_key=$current_public_key
+        WHERE id = $id;
 }
 
 // For development, for not to drop a DB if we need to clear it. Should not be in prod envs.
 procedure delete_human_as_owner($id uuid) public owner {
     DELETE FROM humans WHERE id=$id;
+}
+
+// TODO: delete this after idos-sdk starts using get_human action
+// DEPRECATED
+@kgw(authn='true')
+action get_wallet_human_id() public view {
+    $converted = idos_near.implicit_address_to_public_key(@caller);
+    SELECT DISTINCT human_id FROM wallets
+    WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+        OR (wallet_type = 'NEAR' AND public_key = $converted);
+}
+
+@kgw(authn='true')
+action get_human() public view {
+    $converted = idos_near.implicit_address_to_public_key(@caller);
+    SELECT id, current_public_key FROM humans
+    WHERE id = (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+        OR (wallet_type = 'NEAR' AND public_key = $converted));
+}
+
+@kgw(authn='true')
+procedure get_human_as_inserter($id uuid) public view returns (id uuid, current_public_key text, inserter text) {
+    get_inserter();
+    for $row in SELECT * FROM humans WHERE id = $id {
+        return $row.id, $row.current_public_key, $row.inserter;
+    }
 }
 
 
@@ -491,19 +524,12 @@ action has_profile($address) public view {
     ) AS has_profile;
 }
 
-@kgw(authn='true')
-action get_wallet_human_id() public view {
-    $converted = idos_near.implicit_address_to_public_key(@caller);
-    SELECT DISTINCT human_id FROM wallets
-    WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted);
-}
 
 // OWNER ACTIONS FOR MIGRATIONS
 
-procedure insert_human_as_owner($id uuid, $inserter text) owner public {
-    INSERT INTO humans (id, inserter)
-    VALUES ($id, $inserter);
+procedure insert_human_as_owner($id uuid, $current_public_key text, $inserter text) owner public {
+    INSERT INTO humans (id, current_public_key, inserter)
+    VALUES ($id, $current_public_key, $inserter);
 }
 
 procedure insert_wallet_as_owner($id uuid, $human_id uuid, $address text, $public_key text, $wallet_type text,
