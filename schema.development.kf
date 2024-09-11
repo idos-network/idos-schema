@@ -305,10 +305,10 @@ action edit_credential($id, $issuer, $credential_type, $credential_level, $crede
     );
 }
 
+foreign procedure has_locked_grants($id text, $current_time int) returns (bool)
 action remove_credential($id) public {
-    $current_time = idos.current_time();
     SELECT CASE
-        WHEN has_locked_grants($id, $current_time)
+        WHEN has_locked_grants['x218a50f676f2426cad361fab3f321f2f29711380b18fe21e8e9d3d24', 'has_locked_grants']($id, @block_timestamp)
         THEN ERROR('there are locked grants for this credential')
         END;
 
@@ -318,13 +318,6 @@ action remove_credential($id) public {
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = $converted)
     );
-}
-
-procedure has_locked_grants($id text, $current_time int) public view returns (bool1 bool) {
-    for $row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_owner = @caller COLLATE NOCASE AND locked_until >= $current_time {
-        return true;
-    }
-    return false;
 }
 
 @kgw(authn='true')
@@ -340,18 +333,12 @@ action get_credential_owned ($id) public view {
     );
 }
 
-@kgw(authn='true')
-procedure has_grant($id text) public view returns (bool1 bool) {
-    for $row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee = @caller COLLATE NOCASE {
-        return true;
-    }
-    return false;
-}
+foreign procedure has_grant($id uuid) returns (bool)
 
 @kgw(authn='true')
 action get_credential_shared ($id) public view {
     SELECT CASE
-        WHEN NOT has_grant($id)
+        WHEN NOT has_grant['x218a50f676f2426cad361fab3f321f2f29711380b18fe21e8e9d3d24', 'has_grants']($id)
         THEN ERROR('caller does not have access')
         END;
 
