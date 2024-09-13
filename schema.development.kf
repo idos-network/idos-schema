@@ -133,18 +133,16 @@ procedure delete_human_as_owner($id uuid) public owner {
 // DEPRECATED
 @kgw(authn='true')
 action get_wallet_human_id() public view {
-    $converted = idos.implicit_address_to_public_key(@caller);
     SELECT DISTINCT human_id FROM wallets
     WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted);
+        OR (wallet_type = 'NEAR' AND public_key = @caller);
 }
 
 @kgw(authn='true')
 action get_human() public view {
-    $converted = idos.implicit_address_to_public_key(@caller);
     SELECT id, current_public_key FROM humans
     WHERE id = (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted));
+        OR (wallet_type = 'NEAR' AND public_key = @caller));
 }
 
 @kgw(authn='true')
@@ -176,7 +174,6 @@ procedure delete_wallet_as_owner($id uuid) public owner {
 }
 
 action add_wallet($id, $address, $public_key, $message, $signature) public {
-    $converted = idos.implicit_address_to_public_key(@caller);
     $wallet_type = idos.determine_wallet_type($address);
 
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $public_key::TEXT IS NULL THEN ERROR('NEAR wallets require a public_key to be given.') END;
@@ -188,7 +185,7 @@ action add_wallet($id, $address, $public_key, $message, $signature) public {
     VALUES (
         $id,
         (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = $converted)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)
         ),
         $address,
         CASE
@@ -203,29 +200,31 @@ action add_wallet($id, $address, $public_key, $message, $signature) public {
 
 @kgw(authn='true')
 action get_wallets() public view {
-    $converted = idos.implicit_address_to_public_key(@caller);
     SELECT DISTINCT w1.*
     FROM wallets AS w1
     INNER JOIN wallets AS w2 ON w1.human_id = w2.human_id
     WHERE (
         w2.wallet_type = 'EVM' AND w2.address = @caller COLLATE NOCASE
     ) OR (
-        w2.wallet_type = 'NEAR' AND w2.public_key = $converted
+        w2.wallet_type = 'NEAR' AND w2.public_key = @caller
     );
 }
 
-action remove_wallet($id) public {
-    $converted = idos.implicit_address_to_public_key(@caller);
-    SELECT CASE
-    WHEN EXISTS (SELECT count(id) FROM wallets
-        WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE) OR (wallet_type = 'NEAR' AND public_key = $converted)
-        GROUP BY address HAVING count(id) = 1)
-    THEN ERROR('A human needs to have at least one wallet. We can not delete the last wallet.')
-    END;
+procedure remove_wallet($id uuid) public {
+    for $row in SELECT id FROM wallets
+        WHERE id = $id
+        AND ((wallet_type = 'EVM' AND address=@caller COLLATE NOCASE) OR (wallet_type = 'NEAR' AND public_key = @caller))
+        AND EXISTS (
+            SELECT count(id) FROM wallets
+                WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE) OR (wallet_type = 'NEAR' AND public_key = @caller)
+                GROUP BY human_id HAVING count(id) = 1
+        ) {
+        error('You can not delete a wallet you are connected with. To delete this wallet you have to connect other wallet.');
+    }
 
     DELETE FROM wallets
     WHERE id=$id AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted)
+        OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
 }
 
@@ -247,16 +246,17 @@ procedure upsert_credential_as_inserter(
     ON CONFLICT(id) DO UPDATE
     SET credential_status=$credential_status, content=$content, encryption_public_key=$encryption_public_key, issuer=$issuer, inserter=$inserter;
 
+    // Do we still need this return?
     return true; // dummy return value is needed when the procedure is called from an action like `SELECT procedure_call()`;
 }
 
-action add_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer) public {
-    $converted = idos.implicit_address_to_public_key(@caller);
+procedure add_credential($id uuid, $credential_type text, $credential_level text, $credential_status text, $content text,
+    $encryption_public_key text, $issuer text) public {
     INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer)
     VALUES (
         $id,
         (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = $converted)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)
         ),
         $credential_type,
         $credential_level,
@@ -269,7 +269,6 @@ action add_credential($id, $credential_type, $credential_level, $credential_stat
 
 @kgw(authn='true')
 action get_credentials() public view {
-    $converted = idos.implicit_address_to_public_key(@caller);
 	SELECT DISTINCT c.id, c.human_id, c.inserter, c.credential_type, c.credential_level, c.credential_status, sc.original_id AS original_id
     FROM credentials AS c
     LEFT JOIN shared_credentials AS sc ON c.id = sc.duplicate_id
@@ -277,19 +276,18 @@ action get_credentials() public view {
     WHERE (
         wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
     ) OR (
-        wallets.wallet_type = 'NEAR' AND wallets.public_key = $converted
+        wallets.wallet_type = 'NEAR' AND wallets.public_key = @caller
     );
 }
 
 action edit_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer) public {
-    $converted = idos.implicit_address_to_public_key(@caller);
     SELECT CASE
         WHEN EXISTS (
             SELECT 1 from credentials AS c
                 INNER JOIN shared_credentials AS sc on c.id = sc.duplicate_id
                 WHERE c.id = $id
                 AND c.human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-                    OR (wallet_type = 'NEAR' AND public_key = $converted))
+                    OR (wallet_type = 'NEAR' AND public_key = @caller))
         ) THEN ERROR('Can not edit shared credential') END;
 
     UPDATE credentials
@@ -297,46 +295,53 @@ action edit_credential($id, $credential_type, $credential_level, $credential_sta
         content=$content, encryption_public_key=$encryption_public_key, issuer=$issuer
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted)
+        OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
 }
 
 foreign procedure has_locked_grants($id text, $current_time int) returns (bool)
 
-action remove_credential($id) public {
-    SELECT CASE
-        WHEN has_locked_grants['x218a50f676f2426cad361fab3f321f2f29711380b18fe21e8e9d3d24', 'has_locked_grants']($id, @block_timestamp)
-        THEN ERROR('there are locked grants for this credential')
-    END;
-
-    $converted = idos.implicit_address_to_public_key(@caller);
+// TODO: get DBID from a config table
+procedure remove_credential($id uuid) public {
+    // TODO: get it back when we get a new kwil-cli which knows such contextual variable
+    // has_locked_grants['x218a50f676f2426cad361fab3f321f2f29711380b18fe21e8e9d3d24', 'has_locked_grants']($id, @block_timestamp)
+    if has_locked_grants['x218a50f676f2426cad361fab3f321f2f29711380b18fe21e8e9d3d24', 'has_locked_grants']($id::text, 0) {
+        error('there are locked grants for this credential');
+    }
     DELETE FROM credentials
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted)
+        OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
 }
 
-action share_credential(
-        $id,
-        $original_credential_id,
-        $credential_type,
-        $credential_level,
-        $credential_status,
-        $content,
-        $encryption_public_key,
-        $issuer) public {
-    $converted = idos.implicit_address_to_public_key(@caller);
-    SELECT CASE
-    WHEN NOT EXISTS (
-        SELECT 1 from credentials
-            WHERE id = $original_credential_id
-            AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-                OR (wallet_type = 'NEAR' AND public_key = $converted))
-    ) THEN ERROR('The original credential does not belong to the caller') END;
+procedure share_credential(
+        $id uuid,
+        $original_credential_id uuid,
+        $credential_type text,
+        $credential_level text,
+        $credential_status text,
+        $content text,
+        $encryption_public_key text,
+        $issuer text) public {
+
+    if !credentail_belongs_to_human($original_credential_id) {
+        error('The original credential does not belong to the caller');
+    }
 
     add_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer);
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+}
+
+procedure credentail_belongs_to_human($id uuid) private returns (belongs bool) {
+    for $row in SELECT 1 from credentials
+        WHERE id = $id
+        AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)) {
+        return true;
+    }
+
+    return false;
 }
 
 action share_credential_through_dag (
@@ -360,7 +365,7 @@ action share_credential_through_dag (
             AND human_id = $human_id
     ) THEN ERROR('The original credential does not belong to the human') END;
 
-    $owner_verified = idos_eth.verify_owner($dag_owner, $dag_grantee, $id, $dag_locked_until, $dag_signature);
+    $owner_verified = idos.verify_owner($dag_owner, $dag_grantee, $id, $dag_locked_until, $dag_signature);
     SELECT CASE
         WHEN $owner_verified != 1 THEN ERROR('the signature is invalid')
     END;
@@ -390,14 +395,13 @@ procedure credential_exist_as_inserter($id uuid) public view returns (credential
 
 @kgw(authn='true')
 action get_credential_owned ($id) public view {
-    $converted = idos.implicit_address_to_public_key(@caller);
     SELECT DISTINCT credentials.*
     FROM credentials
     INNER JOIN wallets ON credentials.human_id = wallets.human_id
     WHERE credentials.id = $id
     AND (
         (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
-            OR (wallets.wallet_type = 'NEAR' AND wallets.public_key = $converted)
+            OR (wallets.wallet_type = 'NEAR' AND wallets.public_key = @caller)
     );
 }
 
@@ -421,13 +425,12 @@ procedure add_attribute_as_inserter($id uuid, $human_id uuid, $attribute_key tex
     VALUES ($id, $human_id, $attribute_key, $value, get_inserter());
 }
 
-action add_attribute($id, $attribute_key, $value) public {
-    $converted = idos.implicit_address_to_public_key(@caller);
+procedure add_attribute($id uuid, $attribute_key text, $value text) public {
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
     VALUES (
         $id,
         (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = $converted)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)
         ),
         $attribute_key,
         $value
@@ -436,7 +439,6 @@ action add_attribute($id, $attribute_key, $value) public {
 
 @kgw(authn='true')
 action get_attributes() public view {
-    $converted = idos.implicit_address_to_public_key(@caller);
 	SELECT DISTINCT ha.id, ha.human_id, ha.attribute_key, ha.value, sha.original_id AS original_id
     FROM human_attributes AS ha
     LEFT JOIN shared_human_attributes AS sha ON ha.id = sha.duplicate_id
@@ -444,45 +446,42 @@ action get_attributes() public view {
     WHERE (
         wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
     ) OR (
-        wallets.wallet_type = 'NEAR' AND wallets.public_key = $converted
+        wallets.wallet_type = 'NEAR' AND wallets.public_key = @caller
     );
 }
 
 action edit_attribute($id, $attribute_key, $value) public {
-    $converted = idos.implicit_address_to_public_key(@caller);
     SELECT CASE
         WHEN EXISTS (
             SELECT 1 from human_attributes AS ha
                 INNER JOIN shared_human_attributes AS sha on ha.id = sha.duplicate_id
                 WHERE ha.id = $id
                 AND ha.human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-                    OR (wallet_type = 'NEAR' AND public_key = $converted))
+                    OR (wallet_type = 'NEAR' AND public_key = @caller))
         ) THEN ERROR('Can not edit shared attribute') END;
 
     UPDATE human_attributes
     SET attribute_key=$attribute_key, value=$value
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted)
+        OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
 }
 
-action remove_attribute($id) public {
-    $converted = idos.implicit_address_to_public_key(@caller);
+procedure remove_attribute($id uuid) public {
     DELETE FROM human_attributes
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = $converted)
+        OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
 }
 
-action share_attribute($id, $original_attribute_id, $attribute_key, $value) public {
-    $converted = idos.implicit_address_to_public_key(@caller);
+procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key text, $value text) public {
     INSERT INTO human_attributes (id, human_id, attribute_key, value)
     VALUES (
         $id,
         (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = $converted)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)
         ),
         $attribute_key,
         $value
@@ -496,6 +495,7 @@ action share_attribute($id, $original_attribute_id, $attribute_key, $value) publ
 // OTHER ACTIONS
 
 // Should we improve it to work with near wallets too?
+// RETURNS?
 action has_profile($address) public view {
     SELECT EXISTS (
         SELECT 1 FROM wallets WHERE address=$address COLLATE NOCASE
@@ -538,3 +538,5 @@ procedure insert_shared_attr_as_owner($original_id uuid, $duplicate_id uuid) own
     INSERT INTO shared_human_attributes (original_id, duplicate_id)
     VALUES ($original_id, $duplicate_id);
 }
+
+// ADD PROCEDURES FOR GETTING ALL TABLES FOR INTERNAL SCHEMA MIGRATION
