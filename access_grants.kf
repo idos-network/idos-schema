@@ -1,24 +1,24 @@
 database idos_access_grants;
 
 table access_grants {
-  id uuid primary,
-  ag_owner text notnull,
-  ag_grantee text notnull,
-  data_id text notnull,
-  locked_until int,
-  ag_chain text notnull,
-  tx_hash text,
-  height int,
-  block_hash text,
-  #access_grants_data_id index(data_id)
+    id uuid primary,
+    ag_owner text notnull,
+    ag_grantee text notnull,
+    data_id text notnull,
+    locked_until int,
+    ag_chain text notnull,
+    tx_hash text,
+    block_hash text,
+    height int,
+    #access_grants_data_id index(data_id)
 }
 
 @kgw(authn='true')
 procedure has_grants($id text) public view returns (granted bool) {
-  for $row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee = @caller COLLATE NOCASE {
-    return true;
-  }
-  return false;
+    for $row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee = @caller COLLATE NOCASE {
+        return true;
+    }
+    return false;
 }
 
 @kgw(authn='true')
@@ -33,6 +33,6 @@ procedure has_locked_grants($id text, $current_time int) public view returns (ha
 // FOR FUTURE MIGRATIONS
 
 procedure get_all_grants() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
-  data_id text, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
-  return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM access_grants;
+    data_id text, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
+    return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM access_grants;
 }

@@ -303,9 +303,7 @@ foreign procedure has_locked_grants($id text, $current_time int) returns (bool)
 
 // TODO: get DBID from a config table
 procedure remove_credential($id uuid) public {
-    // TODO: get it back when we get a new kwil-cli which knows such contextual variable
-    // has_locked_grants['x218a50f676f2426cad361fab3f321f2f29711380b18fe21e8e9d3d24', 'has_locked_grants']($id, @block_timestamp)
-    if has_locked_grants['x218a50f676f2426cad361fab3f321f2f29711380b18fe21e8e9d3d24', 'has_locked_grants']($id::text, 0) {
+    if has_locked_grants['x218a50f676f2426cad361fab3f321f2f29711380b18fe21e8e9d3d24', 'has_locked_grants']($id::text, @block_timestamp) {
         error('there are locked grants for this credential');
     }
     DELETE FROM credentials
@@ -315,6 +313,7 @@ procedure remove_credential($id uuid) public {
     );
 }
 
+// Do we need this procedure? Can share_credential_through_dag cover all cases?
 procedure share_credential(
         $id uuid,
         $original_credential_id uuid,
@@ -325,7 +324,7 @@ procedure share_credential(
         $encryption_public_key text,
         $issuer text) public {
 
-    if !credentail_belongs_to_human($original_credential_id) {
+    if !credential_belongs_to_human($original_credential_id) {
         error('The original credential does not belong to the caller');
     }
 
@@ -333,7 +332,7 @@ procedure share_credential(
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 }
 
-procedure credentail_belongs_to_human($id uuid) private returns (belongs bool) {
+procedure credential_belongs_to_human($id uuid) private returns (belongs bool) {
     for $row in SELECT 1 from credentials
         WHERE id = $id
         AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
@@ -405,14 +404,13 @@ action get_credential_owned ($id) public view {
     );
 }
 
-foreign procedure has_grant($id uuid) returns (bool)
+foreign procedure has_grant($id text) returns (bool)
 
 @kgw(authn='true')
-action get_credential_shared ($id) public view {
-    SELECT CASE
-        WHEN NOT has_grant['x218a50f676f2426cad361fab3f321f2f29711380b18fe21e8e9d3d24', 'has_grants']($id)
-        THEN ERROR('caller does not have access')
-    END;
+procedure get_credential_shared ($id uuid) public view {
+    if !has_grant['x218a50f676f2426cad361fab3f321f2f29711380b18fe21e8e9d3d24', 'has_grants']($id::text) {
+        error('caller does not have access');
+    }
 
     SELECT * FROM credentials WHERE id = $id;
 }
@@ -540,3 +538,9 @@ procedure insert_shared_attr_as_owner($original_id uuid, $duplicate_id uuid) own
 }
 
 // ADD PROCEDURES FOR GETTING ALL TABLES FOR INTERNAL SCHEMA MIGRATION
+
+// DEBUG DEVELOPMENT. NOT FOR PRODUCTION
+
+procedure me() public view returns (caller text) {
+  return @caller;
+}
