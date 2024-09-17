@@ -561,7 +561,7 @@ action has_profile($address) public view {
 }
 
 
-// OWNER ACTIONS FOR MIGRATIONS
+// OWNER ACTIONS FOR MANUAL MIGRATIONS
 
 procedure insert_human_as_owner($id uuid, $current_public_key text, $inserter text) owner public {
     INSERT INTO humans (id, current_public_key, inserter)
@@ -569,13 +569,13 @@ procedure insert_human_as_owner($id uuid, $current_public_key text, $inserter te
 }
 
 procedure insert_wallet_as_owner($id uuid, $human_id uuid, $address text, $public_key text, $wallet_type text,
-$message text, $signature text, $inserter text) owner public {
+    $message text, $signature text, $inserter text) owner public {
     INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature, inserter)
     VALUES ($id, $human_id, $address, $public_key, $wallet_type, $message, $signature, $inserter);
 }
 
 procedure insert_credential_as_owner($id uuid, $human_id uuid, $credential_type text, $credential_level text,
-$credential_status text, $content text, $encryption_public_key text, $issuer text, $inserter text) owner public {
+    $credential_status text, $content text, $encryption_public_key text, $issuer text, $inserter text) owner public {
     INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content,
     encryption_public_key, issuer, inserter)
     VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content,
@@ -599,16 +599,53 @@ procedure insert_shared_attr_as_owner($original_id uuid, $duplicate_id uuid) own
 
 // TODO: ADD PROCEDURES FOR GETTING ALL TABLES FOR INTERNAL SCHEMA MIGRATION
 
-// ACTIONS FOR DATA MIGRATION PURPOSES
+// ACTIONS FOR IN-SCHEMA DATA MIGRATION
 
-procedure get_all_grants() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
+procedure all_humans_as_owner() public view owner returns table (id uuid, current_public_key text, inserter text){
+    return SELECT id, current_public_key, inserter FROM humans;
+}
+
+procedure all_wallets_as_owner() public view owner returns table (id uuid, human_id uuid, address text, public_key text,
+    wallet_type text, message text, signature text, inserter text) {
+    return SELECT id, human_id, address, public_key, wallet_type, message, signature, inserter FROM wallets;
+}
+
+procedure all_credentials_as_owner() public view owner returns table (id uuid, human_id uuid, credential_type text,
+    credential_level text, credential_status text, content text, encryption_public_key text, issuer text, inserter text) {
+    return SELECT id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key,
+        issuer, inserter FROM credentials;
+}
+
+procedure all_shared_credentials_as_owner() public view owner returns table (original_id uuid, duplicate_id uuid) {
+    return SELECT original_id, duplicate_id FROM shared_credentials;
+}
+
+procedure all_human_attributes_as_owner() public view owner returns table (id uuid, human_id uuid, attribute_key text,
+    value text, inserter text) {
+    return SELECT id, human_id, attribute_key, value, inserter FROM human_attributes;
+}
+
+procedure all_shared_human_attrs_as_owner() public view owner returns table (original_id uuid, duplicate_id uuid) {
+    return SELECT original_id, duplicate_id FROM shared_human_attributes;
+}
+
+procedure all_inserters_as_owner() public view owner returns table (id uuid, name text) {
+    return SELECT id, name FROM inserters;
+}
+
+procedure all_delegates_as_owner() public view owner returns table (address text, inserter_id uuid) {
+    return SELECT address, inserter_id FROM delegates;
+}
+
+procedure all_grants_as_owner() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
     data_id uuid, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
     return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM access_grants;
 }
 
-procedure get_all_configs () public view owner returns table (config_key text, value text) {
+procedure all_configs_as_owner () public view owner returns table (config_key text, value text) {
     return SELECT config_key, value FROM configs;
 }
+
 
 // DEBUG DEVELOPMENT. NOT FOR PRODUCTION
 
