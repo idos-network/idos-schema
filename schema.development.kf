@@ -98,7 +98,26 @@ table configs {
 }
 
 
-// inserter AND DELEGATE ACTIONS
+// CONFIG ACTIONS
+
+procedure upsert_config_as_owner($config_key text, $value text) public owner {
+    INSERT INTO configs (config_key, value) VALUES ($config_key, $value)
+        ON CONFLICT(config_key) DO UPDATE
+            SET value = $value;
+}
+
+procedure delete_config_as_owner($config_key text) public owner {
+    DELETE FROM configs WHERE config_key = $config_key;
+}
+
+procedure get_config($config_key text) public view owner returns (config_key text, value text) {
+    for $row in SELECT config_key, value FROM configs WHERE config_key = $config_key {
+        return $row.config_key, $row.value;
+    }
+}
+
+
+// INSERTER AND DELEGATE ACTIONS
 
 procedure add_inserter_as_owner($id uuid, $name text) owner public {
     INSERT INTO inserters (id, name) VALUES ($id, $name);
@@ -156,6 +175,7 @@ action get_wallet_human_id() public view {
         OR (wallet_type = 'NEAR' AND public_key = @caller);
 }
 
+// TODO: change to procedure
 @kgw(authn='true')
 action get_human() public view {
     SELECT id, current_public_key FROM humans
@@ -174,6 +194,7 @@ procedure get_human_as_inserter($id uuid) public view returns (id uuid, current_
 
 // WALLET ACTIONS
 
+// TODO: change to procedure
 action upsert_wallet_as_inserter($id, $human_id, $address, $public_key, $wallet_type, $message, $signature) public {
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $public_key::TEXT IS NULL THEN ERROR('NEAR wallets require a public_key to be given.') END;
 
@@ -216,6 +237,7 @@ action add_wallet($id, $address, $public_key, $message, $signature) public {
     );
 }
 
+// TODO: change to procedure
 @kgw(authn='true')
 action get_wallets() public view {
     SELECT DISTINCT w1.*
@@ -285,6 +307,7 @@ procedure add_credential($id uuid, $credential_type text, $credential_level text
     );
 }
 
+// TODO: change to procedure
 @kgw(authn='true')
 action get_credentials() public view {
 	SELECT DISTINCT c.id, c.human_id, c.inserter, c.credential_type, c.credential_level, c.credential_status, sc.original_id AS original_id
@@ -298,6 +321,7 @@ action get_credentials() public view {
     );
 }
 
+// TODO: change to procedure
 action edit_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer) public {
     SELECT CASE
         WHEN EXISTS (
@@ -408,6 +432,7 @@ procedure credential_exist_as_inserter($id uuid) public view returns (credential
     return false;
 }
 
+// TODO: change to procedure
 @kgw(authn='true')
 action get_credential_owned ($id) public view {
     SELECT DISTINCT credentials.*
@@ -449,6 +474,7 @@ procedure add_attribute($id uuid, $attribute_key text, $value text) public {
     );
 }
 
+// TODO: change to procedure
 @kgw(authn='true')
 action get_attributes() public view {
 	SELECT DISTINCT ha.id, ha.human_id, ha.attribute_key, ha.value, sha.original_id AS original_id
@@ -462,6 +488,7 @@ action get_attributes() public view {
     );
 }
 
+// TODO: change to procedure
 action edit_attribute($id, $attribute_key, $value) public {
     SELECT CASE
         WHEN EXISTS (
@@ -526,7 +553,7 @@ procedure has_locked_grants($id uuid) public view returns (has bool) {
 // OTHER ACTIONS
 
 // Should we improve it to work with near wallets too?
-// RETURNS?
+// TODO: change to procedure
 action has_profile($address) public view {
     SELECT EXISTS (
         SELECT 1 FROM wallets WHERE address=$address COLLATE NOCASE
@@ -572,9 +599,15 @@ procedure insert_shared_attr_as_owner($original_id uuid, $duplicate_id uuid) own
 
 // TODO: ADD PROCEDURES FOR GETTING ALL TABLES FOR INTERNAL SCHEMA MIGRATION
 
+// ACTIONS FOR DATA MIGRATION PURPOSES
+
 procedure get_all_grants() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
     data_id uuid, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
     return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM access_grants;
+}
+
+procedure get_all_configs () public view owner returns table (config_key text, value text) {
+    return SELECT config_key, value FROM configs;
 }
 
 // DEBUG DEVELOPMENT. NOT FOR PRODUCTION
