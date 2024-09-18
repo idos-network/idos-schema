@@ -1,4 +1,4 @@
-database idos;
+database idos_v0_1;
 
 // EXTENSION INITIALIZATION
 
@@ -110,9 +110,9 @@ procedure delete_config_as_owner($config_key text) public owner {
     DELETE FROM configs WHERE config_key = $config_key;
 }
 
-procedure get_config($config_key text) public view owner returns (config_key text, value text) {
+procedure get_config_as_owner($config_key text) public view owner returns (value text) {
     for $row in SELECT config_key, value FROM configs WHERE config_key = $config_key {
-        return $row.config_key, $row.value;
+        return $row.value;
     }
 }
 
@@ -644,11 +644,4 @@ procedure all_grants_as_owner() public view owner returns table (id uuid, ag_own
 
 procedure all_configs_as_owner () public view owner returns table (config_key text, value text) {
     return SELECT config_key, value FROM configs;
-}
-
-
-// DEBUG DEVELOPMENT. NOT FOR PRODUCTION
-
-procedure me() public view returns (caller text) {
-  return @caller;
 }
