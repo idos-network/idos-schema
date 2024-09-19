@@ -345,7 +345,6 @@ action edit_credential($id, $credential_type, $credential_level, $credential_sta
     );
 }
 
-// TODO: get DBID from a config table
 procedure remove_credential($id uuid) public {
     if has_locked_grants($id) {
         error('there are locked grants for this credential');
@@ -602,8 +601,6 @@ procedure insert_shared_attr_as_owner($original_id uuid, $duplicate_id uuid) own
     INSERT INTO shared_human_attributes (original_id, duplicate_id)
     VALUES ($original_id, $duplicate_id);
 }
-
-// TODO: ADD PROCEDURES FOR GETTING ALL TABLES FOR INTERNAL SCHEMA MIGRATION
 
 // ACTIONS FOR IN-SCHEMA DATA MIGRATION
 
