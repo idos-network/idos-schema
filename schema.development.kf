@@ -1,4 +1,4 @@
-database idos_v0_1;
+database idos_temp;
 
 // EXTENSION INITIALIZATION
 
@@ -212,6 +212,7 @@ procedure delete_wallet_as_owner($id uuid) public owner {
     DELETE FROM wallets WHERE id=$id;
 }
 
+// Do we need to ask user/sdk to provide id? It is possible now to generate the `id` in the procedure in consensus way
 action add_wallet($id, $address, $public_key, $message, $signature) public {
     $wallet_type = idos.determine_wallet_type($address);
 
@@ -446,12 +447,14 @@ action get_credential_owned ($id) public view {
 }
 
 @kgw(authn='true')
-procedure get_credential_shared ($id uuid) public view {
+procedure get_credential_shared ($id uuid) public view returns table (id uuid, human_id uuid, credential_type text,
+    credential_level text, credential_status text, content text, encryption_public_key text, issuer text, inserter text) {
     if !has_grants($id) {
         error('caller does not have access');
     }
 
-    SELECT * FROM credentials WHERE id = $id;
+    return SELECT id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key,
+        issuer, inserter FROM credentials WHERE id = $id;
 }
 
 
