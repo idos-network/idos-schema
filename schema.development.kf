@@ -85,7 +85,7 @@ table access_grants {
     id uuid primary,
     ag_owner text notnull,
     ag_grantee text notnull,
-    data_id uuid notnull,
+    data_id text notnull,
     locked_until int,
     ag_chain text notnull,
     tx_hash text,
@@ -585,7 +585,7 @@ procedure data_granted_to_grantee($data_id uuid, $grantee text) private view ret
 
 @kgw(authn='true')
 procedure has_locked_grants($id uuid) public view returns (has bool) {
-    for $row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_owner = @caller COLLATE NOCASE AND locked_until >= @block_timestamp LIMIT 1 {
+    for $row in SELECT 1 FROM access_grants WHERE data_id = $id::TEXT AND ag_owner = @caller COLLATE NOCASE AND locked_until >= @block_timestamp LIMIT 1 {
         return true;
     }
     return false;
@@ -678,7 +678,7 @@ procedure all_delegates_as_owner() public view owner returns table (address text
 }
 
 procedure all_grants_as_owner() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
-    data_id uuid, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
+    data_id text, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
     return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM access_grants;
 }
 
