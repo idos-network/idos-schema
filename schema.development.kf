@@ -91,6 +91,7 @@ table access_grants {
     tx_hash text,
     block_hash text,
     height int,
+    status text,
     #access_grants_data_id_grantee index(data_id, ag_grantee),
     #access_grants_data_id_owner index(data_id, ag_owner)
 }
@@ -448,16 +449,27 @@ action get_credential_owned ($id) public view {
 @kgw(authn='true')
 procedure get_credential_shared ($id uuid) public view returns table (id uuid, human_id uuid, credential_type text,
     credential_level text, credential_status text, content text, encryption_public_key text, issuer text, inserter text) {
-    if !shared_credential_exist($id) {
-        error('shared credential does not exist');
+    if !credential_exist($id) {
+        error('the credential does not exist');
     }
 
-    if !data_granted_to_grantee($id, @caller) {
-        error('shared credential is not shared with the caller');
+    $granted bool := false;
+    $grant_valid bool := false;
+
+    for $row in SELECT status FROM access_grants WHERE data_id = $id::TEXT AND ag_grantee = @caller COLLATE NOCASE {
+        $granted := true;
+        if $row.status == 'valid' {
+            $grant_valid := true;
+            break;
+        }
     }
 
-    if !has_grants($id) {
-        error('the credential has grant but the owner does not match');
+    if !$granted {
+        error('the credential is not shared with the caller');
+    }
+
+    if !$grant_valid {
+        error('the credential has no valid access grant');
     }
 
     return SELECT id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key,
@@ -466,13 +478,6 @@ procedure get_credential_shared ($id uuid) public view returns table (id uuid, h
 
 procedure credential_exist($id uuid) private view returns (credential_exist bool) {
     for $row in SELECT 1 FROM credentials WHERE id = $id {
-        return true;
-    }
-    return false;
-}
-
-procedure shared_credential_exist($id uuid) private view returns (credential_exist bool) {
-    for $row in SELECT 1 FROM shared_credentials WHERE duplicate_id = $id LIMIT 1 {
         return true;
     }
     return false;
@@ -556,32 +561,6 @@ procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key 
 
 
 // ACCEESS GRANTS ACTIONS
-
-@kgw(authn='true')
-procedure has_grants($id uuid) public view returns (has_grants bool) {
-    for $row in SELECT 1 FROM access_grants
-        INNER JOIN credentials ON access_grants.data_id = credentials.id
-        INNER JOIN wallets ON credentials.human_id = wallets.human_id
-        WHERE access_grants.data_id = $id
-        AND access_grants.ag_grantee = @caller COLLATE NOCASE
-        AND ((wallets.address = access_grants.ag_owner COLLATE NOCASE AND wallets.wallet_type = 'EVM')
-            OR (wallets.public_key = access_grants.ag_owner COLLATE NOCASE AND wallets.wallet_type = 'NEAR'))
-
-        LIMIT 1 {
-        return true;
-    }
-    return false;
-}
-
-procedure data_granted_to_grantee($data_id uuid, $grantee text) private view returns (granted bool) {
-    for $row in SELECT 1 FROM access_grants
-    WHERE data_id = $data_id
-        AND ag_grantee = $grantee COLLATE NOCASE
-    LIMIT 1 {
-        return true;
-    }
-    return false;
-}
 
 @kgw(authn='true')
 procedure has_locked_grants($id uuid) public view returns (has bool) {
