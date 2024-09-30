@@ -48,6 +48,7 @@ table shared_credentials {
     original_id uuid notnull,
     duplicate_id uuid notnull,
     #primary_key primary(original_id, duplicate_id),
+    #shared_credentials_duplicate_id index(duplicate_id),
     foreign_key (original_id) references credentials(id) on_delete cascade,
     foreign_key (duplicate_id) references credentials(id) on_delete cascade
 }
@@ -568,6 +569,33 @@ procedure has_locked_grants($id uuid) public view returns (has bool) {
         return true;
     }
     return false;
+}
+
+// This procedure is used in an oracle resolution to determine the status of a AG at the moment of adding it into idOS
+// It needs to be done at this moment because of later defining data can change (original credential deleted, owner wallet or profile removed etc.)
+procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id uuid) public view owner returns (status text) {
+    if !credential_exist($data_id) {
+        return 'the credential does not exist';
+    }
+
+    $data_id_is_duplicate := false;
+    for $row in SELECT 1 FROM shared_credentials WHERE duplicate_id = $data_id LIMIT 1 {
+        $data_id_is_duplicate := true;
+    }
+    if !$data_id_is_duplicate {
+        return 'data_id is original credential';
+    }
+
+    for $row2 in SELECT 1 FROM wallets
+        INNER JOIN credentials ON credentials.human_id = wallets.human_id
+        WHERE credentials.id = $data_id
+        AND ((wallets.address = $ag_owner COLLATE NOCASE AND wallets.wallet_type = 'EVM')
+            OR (wallets.public_key = $ag_owner COLLATE NOCASE AND wallets.wallet_type = 'NEAR'))
+        LIMIT 1 {
+            return 'valid';
+        }
+
+    return 'the ag owner was not issued the credential';
 }
 
 
