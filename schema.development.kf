@@ -470,7 +470,7 @@ procedure get_credential_shared ($id uuid) public view returns table (id uuid, h
     }
 
     if !$grant_valid {
-        error('the credential has no valid access grant');
+        error('the credential has no valid access grant; for more details, call list_ag_statuses');
     }
 
     return SELECT id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key,
