@@ -575,7 +575,7 @@ procedure has_locked_grants($id uuid) public view returns (has bool) {
 // It needs to be done at this moment because of later defining data can change (original credential deleted, owner wallet or profile removed etc.)
 procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id uuid) public view owner returns (status text) {
     if !credential_exist($data_id) {
-        return 'the credential does not exist';
+        return 'invalid_data_id_not_found';
     }
 
     $data_id_is_duplicate := false;
@@ -583,7 +583,7 @@ procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id u
         $data_id_is_duplicate := true;
     }
     if !$data_id_is_duplicate {
-        return 'data_id is original credential';
+        return 'invalid_data_id_is_not_a_duplicate';
     }
 
     for $row2 in SELECT 1 FROM wallets
@@ -595,7 +595,7 @@ procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id u
             return 'valid';
         }
 
-    return 'the ag owner was not issued the credential';
+    return 'invalid_ag_owner_does_not_match_original_credential_owner';
 }
 
 
