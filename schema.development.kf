@@ -475,15 +475,6 @@ procedure get_credential_shared ($id uuid) public view returns table (id uuid, h
         issuer, inserter FROM credentials WHERE id = $id;
 }
 
-@kgw(authn='true')
-procedure list_ag_statuses($data_id text) public view returns table (ag_owner text, ag_grantee text, locked_until int, status text) {
-    return
-        SELECT ag_owner, ag_grantee, locked_until, status
-        FROM access_grants
-        WHERE data_id = $data_id
-          AND ag_grantee = @caller;
-}
-
 procedure credential_exist($id uuid) private view returns (credential_exist bool) {
     for $row in SELECT 1 FROM credentials WHERE id = $id {
         return true;
@@ -571,8 +562,21 @@ procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key 
 // ACCEESS GRANTS ACTIONS
 
 @kgw(authn='true')
+procedure list_ag_statuses($data_id text) public view returns table (ag_owner text, ag_grantee text, locked_until int, status text) {
+    return
+        SELECT ag_owner, ag_grantee, locked_until, status
+        FROM access_grants
+        WHERE data_id = $data_id
+          AND ag_grantee = @caller;
+}
+
+@kgw(authn='true')
 procedure has_locked_grants($id uuid) public view returns (has bool) {
-    for $row in SELECT 1 FROM access_grants WHERE data_id = $id::TEXT AND ag_owner = @caller COLLATE NOCASE AND locked_until >= @block_timestamp LIMIT 1 {
+    for $row in SELECT 1 FROM access_grants
+            WHERE data_id = $id::TEXT
+            AND ag_owner = @caller COLLATE NOCASE
+            AND status = 'valid'
+            AND locked_until >= @block_timestamp LIMIT 1 {
         return true;
     }
     return false;
