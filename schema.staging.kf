@@ -7,8 +7,6 @@ use idos as idos;
 
 // TABLES
 
-// TABLES
-
 table humans {
     id uuid primary,
     current_public_key text notnull,
@@ -48,6 +46,7 @@ table shared_credentials {
     original_id uuid notnull,
     duplicate_id uuid notnull,
     #primary_key primary(original_id, duplicate_id),
+    #shared_credentials_duplicate_id index(duplicate_id),
     foreign_key (original_id) references credentials(id) on_delete cascade,
     foreign_key (duplicate_id) references credentials(id) on_delete cascade
 }
@@ -85,12 +84,13 @@ table access_grants {
     id uuid primary,
     ag_owner text notnull,
     ag_grantee text notnull,
-    data_id uuid notnull,
+    data_id text notnull,
     locked_until int,
     ag_chain text notnull,
     tx_hash text,
     block_hash text,
     height int,
+    status text,
     #access_grants_data_id_grantee index(data_id, ag_grantee),
     #access_grants_data_id_owner index(data_id, ag_owner)
 }
@@ -429,10 +429,7 @@ action share_credential_through_dag (
 @kgw(authn='true')
 procedure credential_exist_as_inserter($id uuid) public view returns (credential_exist bool) {
     get_inserter();
-    for $row in SELECT 1 FROM credentials WHERE id = $id {
-        return true;
-    }
-    return false;
+    return credential_exist($id);
 }
 
 // TODO: change to procedure
@@ -451,12 +448,38 @@ action get_credential_owned ($id) public view {
 @kgw(authn='true')
 procedure get_credential_shared ($id uuid) public view returns table (id uuid, human_id uuid, credential_type text,
     credential_level text, credential_status text, content text, encryption_public_key text, issuer text, inserter text) {
-    if !has_grants($id) {
-        error('caller does not have access');
+    if !credential_exist($id) {
+        error('the credential does not exist');
+    }
+
+    $granted bool := false;
+    $grant_valid bool := false;
+
+    for $row in SELECT status FROM access_grants WHERE data_id = $id::TEXT AND ag_grantee = @caller COLLATE NOCASE {
+        $granted := true;
+        if $row.status == 'valid' {
+            $grant_valid := true;
+            break;
+        }
+    }
+
+    if !$granted {
+        error('the credential is not shared with the caller');
+    }
+
+    if !$grant_valid {
+        error('the credential has no valid access grant; for more details, call list_ag_statuses');
     }
 
     return SELECT id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key,
         issuer, inserter FROM credentials WHERE id = $id;
+}
+
+procedure credential_exist($id uuid) private view returns (credential_exist bool) {
+    for $row in SELECT 1 FROM credentials WHERE id = $id {
+        return true;
+    }
+    return false;
 }
 
 
@@ -539,19 +562,51 @@ procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key 
 // ACCEESS GRANTS ACTIONS
 
 @kgw(authn='true')
-procedure has_grants($id uuid) public view returns (granted bool) {
-    for $row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee = @caller COLLATE NOCASE LIMIT 1 {
+procedure list_ag_statuses($data_id text) public view returns table (ag_owner text, ag_grantee text, locked_until int, status text) {
+    return
+        SELECT ag_owner, ag_grantee, locked_until, status
+        FROM access_grants
+        WHERE data_id = $data_id
+          AND ag_grantee = @caller;
+}
+
+@kgw(authn='true')
+procedure has_locked_grants($id uuid) public view returns (has bool) {
+    for $row in SELECT 1 FROM access_grants
+            WHERE data_id = $id::TEXT
+            AND ag_owner = @caller COLLATE NOCASE
+            AND status = 'valid'
+            AND locked_until >= @block_timestamp LIMIT 1 {
         return true;
     }
     return false;
 }
 
-@kgw(authn='true')
-procedure has_locked_grants($id uuid) public view returns (has bool) {
-    for $row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_owner = @caller COLLATE NOCASE AND locked_until >= @block_timestamp LIMIT 1 {
-        return true;
+// This procedure is used in an oracle resolution to determine the status of a AG at the moment of adding it into idOS
+// It needs to be done at this moment because of later defining data can change (original credential deleted, owner wallet or profile removed etc.)
+procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id uuid) public view owner returns (status text) {
+    if !credential_exist($data_id) {
+        return 'invalid_data_id_not_found';
     }
-    return false;
+
+    $data_id_is_duplicate := false;
+    for $row in SELECT 1 FROM shared_credentials WHERE duplicate_id = $data_id LIMIT 1 {
+        $data_id_is_duplicate := true;
+    }
+    if !$data_id_is_duplicate {
+        return 'invalid_data_id_is_not_a_duplicate';
+    }
+
+    for $row2 in SELECT 1 FROM wallets
+        INNER JOIN credentials ON credentials.human_id = wallets.human_id
+        WHERE credentials.id = $data_id
+        AND ((wallets.address = $ag_owner COLLATE NOCASE AND wallets.wallet_type = 'EVM')
+            OR (wallets.public_key = $ag_owner COLLATE NOCASE AND wallets.wallet_type = 'NEAR'))
+        LIMIT 1 {
+            return 'valid';
+        }
+
+    return 'invalid_ag_owner_does_not_match_original_credential_owner';
 }
 
 
@@ -641,7 +696,7 @@ procedure all_delegates_as_owner() public view owner returns table (address text
 }
 
 procedure all_grants_as_owner() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
-    data_id uuid, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
+    data_id text, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
     return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM access_grants;
 }
 
