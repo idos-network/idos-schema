@@ -7,8 +7,6 @@ use idos as idos;
 
 // TABLES
 
-// TABLES
-
 table humans {
     id uuid primary,
     current_public_key text notnull,
