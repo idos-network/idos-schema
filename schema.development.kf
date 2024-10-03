@@ -390,7 +390,7 @@ procedure share_credential(
         $encryption_public_key text,
         $issuer text) public {
 
-    if !credential_belongs_to_human($original_credential_id) {
+    if !credential_belongs_to_caller($original_credential_id) {
         error('The original credential does not belong to the caller');
     }
 
@@ -398,7 +398,15 @@ procedure share_credential(
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 }
 
-procedure credential_belongs_to_human($id uuid) private returns (belongs bool) {
+procedure credential_belongs_to_human($id uuid, $human_id uuid) private returns (belongs bool) {
+    for $row in SELECT 1 from credentials WHERE id = $id AND human_id = $human_id LIMIT 1 {
+        return true;
+    }
+
+    return false;
+}
+
+procedure credential_belongs_to_caller($id uuid) private returns (belongs bool) {
     for $row in SELECT 1 from credentials
         WHERE id = $id
         AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
@@ -446,6 +454,33 @@ action share_credential_through_dag (
 
     INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
         VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, get_inserter_or_null());
+    INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+}
+
+procedure share_credential_by_write_grant(
+    $id uuid,
+    $human_id uuid,
+    $original_credential_id uuid,
+    $credential_type text,
+    $credential_level text,
+    $credential_status text,
+    $content text,
+    $encryption_public_key text,
+    $issuer text) public {
+
+    // will fail if no WG
+    $wg_id := get_write_grant_id($human_id);
+
+    if !credential_belongs_to_human($original_credential_id, $human_id) {
+        error('the original credential does not belong to the human');
+    }
+
+    // if $wg_id != get_credential_inserter($original_credential_id) {
+    //     error('you can share only original credentials you created');
+    // }
+
+    INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
+        VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, $wg_id::TEXT);
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 }
 
