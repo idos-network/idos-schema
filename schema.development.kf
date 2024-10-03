@@ -95,6 +95,14 @@ table access_grants {
     #access_grants_data_id_owner index(data_id, ag_owner)
 }
 
+table write_grants {
+    id uuid primary,
+    wg_owner text notnull,
+    wg_grantee text notnull,
+    wg_owner_human_id uuid notnull,
+    #write_grants_human_id_grantee unique(wg_owner_human_id, wg_grantee)
+}
+
 table configs {
     config_key text primary,
     value text
@@ -309,6 +317,21 @@ procedure add_credential($id uuid, $credential_type text, $credential_level text
         $encryption_public_key,
         $issuer
     );
+}
+
+procedure add_credential_by_write_grant(
+    $id uuid,
+    $human_id uuid,
+    $credential_type text,
+    $credential_level text,
+    $credential_status text,
+    $content text,
+    $encryption_public_key text,
+    $issuer text) public {
+
+    $wg_id := get_write_grant_id($human_id);
+    INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
+    VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, $wg_id::TEXT);
 }
 
 // TODO: change to procedure
@@ -607,6 +630,33 @@ procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id u
         }
 
     return 'invalid_ag_owner_does_not_match_original_credential_owner';
+}
+
+
+// WRITE GRANTS ACTIONS
+
+procedure add_write_grant($wg_grantee text) public {
+    INSERT INTO write_grants (id, wg_owner, wg_grantee, wg_owner_human_id) VALUES (
+        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s', @caller, $wg_grantee)),
+        @caller,
+        $wg_grantee,
+        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)
+        )
+    );
+}
+
+// Not sure we need this. But at least for testing it is valuable.
+procedure remove_write_grant($id uuid) public owner {
+    DELETE FROM write_grants WHERE id = $id;
+}
+
+procedure get_write_grant_id($human_id uuid) private view returns (id uuid) {
+    for $row in SELECT id FROM write_grants WHERE wg_owner_human_id = $human_id AND wg_grantee = @caller LIMIT 1 {
+        return $row.id;
+    }
+
+    error('there is no write grant found');
 }
 
 
