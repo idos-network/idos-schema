@@ -398,25 +398,6 @@ procedure share_credential(
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 }
 
-procedure credential_belongs_to_human($id uuid, $human_id uuid) private returns (belongs bool) {
-    for $row in SELECT 1 from credentials WHERE id = $id AND human_id = $human_id LIMIT 1 {
-        return true;
-    }
-
-    return false;
-}
-
-procedure credential_belongs_to_caller($id uuid) private returns (belongs bool) {
-    for $row in SELECT 1 from credentials
-        WHERE id = $id
-        AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = @caller)) {
-        return true;
-    }
-
-    return false;
-}
-
 action share_credential_through_dag (
         $id,
         $human_id,
@@ -475,9 +456,9 @@ procedure share_credential_by_write_grant(
         error('the original credential does not belong to the human');
     }
 
-    // if $wg_id != get_credential_inserter($original_credential_id) {
-    //     error('you can share only original credentials you created');
-    // }
+    if $wg_id::TEXT != get_credential_inserter($original_credential_id) {
+        error('you can share only original credentials you created');
+    }
 
     INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
         VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, $wg_id::TEXT);
@@ -533,11 +514,38 @@ procedure get_credential_shared ($id uuid) public view returns table (id uuid, h
         issuer, inserter FROM credentials WHERE id = $id;
 }
 
+procedure credential_belongs_to_human($id uuid, $human_id uuid) private returns (belongs bool) {
+    for $row in SELECT 1 from credentials WHERE id = $id AND human_id = $human_id LIMIT 1 {
+        return true;
+    }
+
+    return false;
+}
+
+procedure credential_belongs_to_caller($id uuid) private returns (belongs bool) {
+    for $row in SELECT 1 from credentials
+        WHERE id = $id
+        AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)) {
+        return true;
+    }
+
+    return false;
+}
+
 procedure credential_exist($id uuid) private view returns (credential_exist bool) {
     for $row in SELECT 1 FROM credentials WHERE id = $id {
         return true;
     }
     return false;
+}
+
+procedure get_credential_inserter($id uuid) private view returns (inserter text) {
+    for $row in SELECT inserter FROM credentials WHERE id = $id LIMIT 1 {
+        return $row.inserter;
+    }
+
+    error('credential not found');
 }
 
 
