@@ -530,7 +530,7 @@ procedure get_credential_shared ($id uuid) public view returns table (id uuid, h
         issuer, inserter FROM credentials WHERE id = $id;
 }
 
-procedure credential_belongs_to_human($id uuid, $human_id uuid) private returns (belongs bool) {
+procedure credential_belongs_to_human($id uuid, $human_id uuid) private view returns (belongs bool) {
     for $row in SELECT 1 from credentials WHERE id = $id AND human_id = $human_id LIMIT 1 {
         return true;
     }
@@ -538,7 +538,7 @@ procedure credential_belongs_to_human($id uuid, $human_id uuid) private returns 
     return false;
 }
 
-procedure credential_belongs_to_caller($id uuid) private returns (belongs bool) {
+procedure credential_belongs_to_caller($id uuid) private view returns (belongs bool) {
     for $row in SELECT 1 from credentials
         WHERE id = $id
         AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
