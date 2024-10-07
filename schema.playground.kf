@@ -2,21 +2,25 @@ database idos;
 
 // EXTENSION INITIALIZATION
 
+// Chain id: 0xaa36a7 (Sepolia)
 use idos {
     registry_address: '0x11Fe2099B205388ED95BB0e52e424512eb43692f',
     chain: 'eth'
 } as idos_eth;
 
+// Chain id: testnet
 use idos {
     registry_address: 'idos-dev-2.testnet',
     chain: 'near'
 } as idos_near;
 
+// Chain id: 0x66eee (Arbitrum Sepolia)
 use idos {
     registry_address: '0x350829c8FCb3DF16EeaE9ADDa2565090348426f9',
     chain: 'arbitrum'
 } as idos_arbitrum;
 
+// Chain id: 0x1f47b (Etherlink Testnet)
 use idos {
     registry_address: '0xeed5537b68baD728A3Bb433d8e06ebab81ac0EAB',
     chain: 'etherlink'
