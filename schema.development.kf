@@ -103,6 +103,16 @@ table write_grants {
     #write_grants_human_id_grantee unique(wg_owner_human_id, wg_grantee)
 }
 
+table internal_access_grants {
+    id uuid primary,
+    ag_owner text notnull,
+    ag_grantee text notnull,
+    data_id text notnull,
+    locked_until int notnull,
+    wg_id uuid,
+    foreign_key (wg_id) references write_grants(id) on_delete set_null // TODO Maybe `set_null` is not the right decision?
+}
+
 table configs {
     config_key text primary,
     value text
@@ -447,6 +457,8 @@ procedure share_credential_by_write_grant(
     $id uuid,
     $human_id uuid,
     $original_credential_id uuid,
+    // TODO add grantee
+    // TODO add timelock
     $credential_type text,
     $credential_level text,
     $credential_status text,
@@ -470,6 +482,7 @@ procedure share_credential_by_write_grant(
     INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
         VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, $wg_id);
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+    INSERT INTO internal_access_grants(); //TODO write the actual code
 }
 
 @kgw(authn='true')
@@ -510,6 +523,7 @@ procedure get_credential_shared ($id uuid) public view returns table (id uuid, h
         }
     }
 
+    // TODO look in internal_access_grants, not write_grants.
     for $row2 in SELECT 1 FROM write_grants INNER JOIN credentials ON write_grants.wg_owner_human_id = credentials.human_id
         WHERE credentials.id = $id
             AND write_grants.wg_grantee = @caller COLLATE NOCASE
@@ -718,6 +732,11 @@ procedure get_write_grant_id($human_id uuid) private view returns (id text) {
     return '';
 }
 
+
+// INTERNAL ACCESS GRANTS ACTIONS
+
+// TODO write revoke_internal_access_grant (required auth, and it has to be the user)
+// TODO write findGrants_internal_grants, so that both owners and grantees can list the AGs for them.
 
 // OTHER ACTIONS
 
