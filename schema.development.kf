@@ -700,6 +700,6 @@ procedure all_grants_as_owner() public view owner returns table (id uuid, ag_own
     return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM access_grants;
 }
 
-procedure all_configs_as_owner () public view owner returns table (config_key text, value text) {
+procedure all_configs_as_owner() public view owner returns table (config_key text, value text) {
     return SELECT config_key, value FROM configs;
 }
