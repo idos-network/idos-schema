@@ -95,6 +95,24 @@ table access_grants {
     #access_grants_data_id_owner index(data_id, ag_owner)
 }
 
+table write_grants {
+    id uuid primary,
+    wg_owner text notnull,
+    wg_grantee text notnull,
+    wg_owner_human_id uuid notnull,
+    #write_grants_human_id_grantee unique(wg_owner_human_id, wg_grantee)
+}
+
+table internal_access_grants {
+    id uuid primary,
+    ag_owner text notnull,
+    ag_grantee text notnull,
+    data_id text notnull,
+    locked_until int notnull,
+    wg_id uuid,
+    foreign_key (wg_id) references write_grants(id) on_delete set_null // TODO Maybe `set_null` is not the right decision?
+}
+
 table configs {
     config_key text primary,
     value text
@@ -311,6 +329,26 @@ procedure add_credential($id uuid, $credential_type text, $credential_level text
     );
 }
 
+procedure add_credential_by_write_grant(
+    $id uuid,
+    $human_id uuid,
+    $credential_type text,
+    $credential_level text,
+    $credential_status text,
+    $content text,
+    $encryption_public_key text,
+    $issuer text) public {
+
+    $wg_id := get_write_grant_id($human_id);
+
+    if $wg_id == '' {
+        error('there is no write grant found');
+    }
+
+    INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
+    VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, $wg_id);
+}
+
 // TODO: change to procedure
 @kgw(authn='true')
 action get_credentials() public view {
@@ -367,23 +405,12 @@ procedure share_credential(
         $encryption_public_key text,
         $issuer text) public {
 
-    if !credential_belongs_to_human($original_credential_id) {
+    if !credential_belongs_to_caller($original_credential_id) {
         error('The original credential does not belong to the caller');
     }
 
     add_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer);
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
-}
-
-procedure credential_belongs_to_human($id uuid) private returns (belongs bool) {
-    for $row in SELECT 1 from credentials
-        WHERE id = $id
-        AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = @caller)) {
-        return true;
-    }
-
-    return false;
 }
 
 action share_credential_through_dag (
@@ -426,6 +453,38 @@ action share_credential_through_dag (
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 }
 
+procedure share_credential_by_write_grant(
+    $id uuid,
+    $human_id uuid,
+    $original_credential_id uuid,
+    // TODO add grantee
+    // TODO add timelock
+    $credential_type text,
+    $credential_level text,
+    $credential_status text,
+    $content text,
+    $encryption_public_key text,
+    $issuer text) public {
+
+    $wg_id := get_write_grant_id($human_id);
+    if $wg_id == '' {
+        error('there is no write grant found');
+    }
+
+    if !credential_belongs_to_human($original_credential_id, $human_id) {
+        error('the original credential does not belong to the human');
+    }
+
+    if $wg_id != get_credential_inserter($original_credential_id) {
+        error('you can share only original credentials you created');
+    }
+
+    INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
+        VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, $wg_id);
+    INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+    INSERT INTO internal_access_grants(); //TODO write the actual code
+}
+
 @kgw(authn='true')
 procedure credential_exist_as_inserter($id uuid) public view returns (credential_exist bool) {
     get_inserter();
@@ -452,22 +511,32 @@ procedure get_credential_shared ($id uuid) public view returns table (id uuid, h
         error('the credential does not exist');
     }
 
-    $granted bool := false;
-    $grant_valid bool := false;
+    $ag_granted bool := false;
+    $ag_grant_valid bool := false;
+    $wg_granted bool := false;
 
     for $row in SELECT status FROM access_grants WHERE data_id = $id::TEXT AND ag_grantee = @caller COLLATE NOCASE {
-        $granted := true;
+        $ag_granted := true;
         if $row.status == 'valid' {
-            $grant_valid := true;
+            $ag_grant_valid := true;
             break;
         }
     }
 
-    if !$granted {
+    // TODO look in internal_access_grants, not write_grants.
+    for $row2 in SELECT 1 FROM write_grants INNER JOIN credentials ON write_grants.wg_owner_human_id = credentials.human_id
+        WHERE credentials.id = $id
+            AND write_grants.wg_grantee = @caller COLLATE NOCASE
+            AND credentials.inserter = @caller LIMIT 1 {
+
+        $wg_granted := true;
+    }
+
+    if !$ag_granted and !$wg_granted {
         error('the credential is not shared with the caller');
     }
 
-    if !$grant_valid {
+    if $ag_granted and !$wg_granted and !$ag_grant_valid {
         error('the credential has no valid access grant; for more details, call list_ag_statuses');
     }
 
@@ -475,11 +544,38 @@ procedure get_credential_shared ($id uuid) public view returns table (id uuid, h
         issuer, inserter FROM credentials WHERE id = $id;
 }
 
+procedure credential_belongs_to_human($id uuid, $human_id uuid) private returns (belongs bool) {
+    for $row in SELECT 1 from credentials WHERE id = $id AND human_id = $human_id LIMIT 1 {
+        return true;
+    }
+
+    return false;
+}
+
+procedure credential_belongs_to_caller($id uuid) private returns (belongs bool) {
+    for $row in SELECT 1 from credentials
+        WHERE id = $id
+        AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)) {
+        return true;
+    }
+
+    return false;
+}
+
 procedure credential_exist($id uuid) private view returns (credential_exist bool) {
     for $row in SELECT 1 FROM credentials WHERE id = $id {
         return true;
     }
     return false;
+}
+
+procedure get_credential_inserter($id uuid) private view returns (inserter text) {
+    for $row in SELECT inserter FROM credentials WHERE id = $id LIMIT 1 {
+        return $row.inserter;
+    }
+
+    error('credential not found');
 }
 
 
@@ -609,6 +705,38 @@ procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id u
     return 'invalid_ag_owner_does_not_match_original_credential_owner';
 }
 
+
+// WRITE GRANTS ACTIONS
+
+procedure add_write_grant($wg_grantee text) public {
+    INSERT INTO write_grants (id, wg_owner, wg_grantee, wg_owner_human_id) VALUES (
+        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s', @caller, $wg_grantee)),
+        @caller,
+        $wg_grantee,
+        (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)
+        )
+    );
+}
+
+// Not sure we need this. But at least for testing it is valuable.
+procedure remove_write_grant($id uuid) public owner {
+    DELETE FROM write_grants WHERE id = $id;
+}
+
+procedure get_write_grant_id($human_id uuid) private view returns (id text) {
+    for $row in SELECT id FROM write_grants WHERE wg_owner_human_id = $human_id AND wg_grantee = @caller COLLATE NOCASE LIMIT 1 {
+        return $row.id::TEXT;
+    }
+
+    return '';
+}
+
+
+// INTERNAL ACCESS GRANTS ACTIONS
+
+// TODO write revoke_internal_access_grant (required auth, and it has to be the user)
+// TODO write findGrants_internal_grants, so that both owners and grantees can list the AGs for them.
 
 // OTHER ACTIONS
 
