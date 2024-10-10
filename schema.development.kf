@@ -85,7 +85,7 @@ table access_grants {
     ag_owner text notnull,
     ag_grantee text notnull,
     data_id text notnull,
-    locked_until int,
+    locked_until int notnull,
     ag_chain text notnull,
     tx_hash text,
     block_hash text,
