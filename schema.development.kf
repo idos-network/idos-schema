@@ -757,6 +757,19 @@ procedure revoke_internal_access_grant ($id uuid) public {
 }
 
 // TODO write findGrants_internal_grants, so that both owners and grantees can list the AGs for them.
+procedure get_internal_ag_owned () public view returns table (id uuid, ag_owner_human_id uuid,
+    ag_grantee text, data_id uuid, locked_until int, write_grant_id uuid) {
+    return SELECT id, ag_owner_human_id, ag_grantee, data_id, locked_until, write_grant_id FROM internal_access_grants
+        WHERE ag_owner_human_id = (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller));
+}
+
+procedure get_internal_ag_granted () public view returns table (id uuid, ag_owner_human_id uuid,
+    ag_grantee text, data_id uuid, locked_until int) {
+    return SELECT id, ag_owner_human_id, ag_grantee, data_id, locked_until FROM internal_access_grants
+        WHERE ag_grantee =  @caller;
+}
+
 
 // OTHER ACTIONS
 
