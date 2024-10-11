@@ -521,33 +521,28 @@ procedure get_credential_shared ($id uuid) public view returns table (id uuid, h
         error('the credential does not exist');
     }
 
-    $ag_granted bool := false;
-    $ag_grant_valid bool := false;
-    $wg_granted bool := false;
+    $ext_ag_granted bool := false;
+    $ext_ag_grant_valid bool := false;
+    $int_ag_granted bool := false;
 
-    for $row in SELECT status FROM external_access_grants WHERE data_id = $id::TEXT AND ag_grantee = @caller COLLATE NOCASE {
-        $granted := true;
-        if $row.status == 'valid' {
-            $ag_grant_valid := true;
+    for $ext_ag_row in SELECT status FROM external_access_grants WHERE data_id = $id::TEXT AND ag_grantee = @caller COLLATE NOCASE {
+        $ext_ag_granted := true;
+        if $ext_ag_row.status == 'valid' {
+            $ext_ag_grant_valid := true;
             break;
         }
     }
 
-    // TODO look in internal_access_grants, not write_grants.
-    for $row2 in SELECT 1 FROM write_grants INNER JOIN credentials ON write_grants.wg_owner_human_id = credentials.human_id
-        WHERE credentials.id = $id
-            AND write_grants.wg_grantee = @caller COLLATE NOCASE
-            AND credentials.inserter = @caller LIMIT 1 {
-
-        $wg_granted := true;
+    for $int_ag_row in SELECT 1 FROM internal_access_grants WHERE data_id = $id AND ag_grantee = @caller COLLATE NOCASE {
+        $int_ag_granted := true;
     }
 
-    if !$ag_granted and !$wg_granted {
+    if !$ext_ag_granted and !$int_ag_granted {
         error('the credential is not shared with the caller');
     }
 
-    if $ag_granted and !$wg_granted and !$ag_grant_valid {
-        error('the credential has no valid access grant; for more details, call list_ag_statuses');
+    if $ext_ag_granted and !$int_ag_granted and !$ext_ag_grant_valid {
+        error('the credential has no valid access grant; for more details, call list_external_ag_statuses');
     }
 
     return SELECT id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key,
@@ -668,7 +663,7 @@ procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key 
 // ACCEESS GRANTS ACTIONS
 
 @kgw(authn='true')
-procedure list_ag_statuses($data_id text) public view returns table (ag_owner text, ag_grantee text, locked_until int, status text) {
+procedure list_external_ag_statuses($data_id text) public view returns table (ag_owner text, ag_grantee text, locked_until int, status text) {
     return
         SELECT ag_owner, ag_grantee, locked_until, status
         FROM external_access_grants
