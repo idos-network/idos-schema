@@ -749,7 +749,13 @@ procedure get_write_grant_id($human_id uuid) private view returns (id uuid) {
 
 // INTERNAL ACCESS GRANTS ACTIONS
 
-// TODO write revoke_internal_access_grant (required auth, and it has to be the user)
+procedure revoke_internal_access_grant ($id uuid) public {
+    DELETE FROM internal_access_grants
+    WHERE id = $id
+    AND ag_owner_human_id = (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+        OR (wallet_type = 'NEAR' AND public_key = @caller));
+}
+
 // TODO write findGrants_internal_grants, so that both owners and grantees can list the AGs for them.
 
 // OTHER ACTIONS
