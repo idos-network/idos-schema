@@ -673,13 +673,20 @@ procedure list_external_ag_statuses($data_id text) public view returns table (ag
 
 @kgw(authn='true')
 procedure has_locked_grants($id uuid) public view returns (has bool) {
-    for $row in SELECT 1 FROM external_access_grants
+    for $ext_row in SELECT 1 FROM external_access_grants
             WHERE data_id = $id::TEXT
-            AND ag_owner = @caller COLLATE NOCASE
+            AND ag_owner = @caller COLLATE NOCASE // not shure if this condition necessary as we now have owner validation reflected in status
             AND status = 'valid'
             AND locked_until >= @block_timestamp LIMIT 1 {
         return true;
     }
+
+    for $int_row in SELECT 1 FROM internal_access_grants
+            WHERE data_id = $id
+            AND locked_until >= @block_timestamp LIMIT 1 {
+        return true;
+    }
+
     return false;
 }
 
