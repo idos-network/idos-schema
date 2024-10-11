@@ -33,9 +33,9 @@ table credentials {
     human_id uuid notnull,
     credential_type text notnull,
     credential_level text,
-    credential_status text,
+    credential_status text, // idOS credential's status, not VC status (VC statuses are managed inside VC content and revocations mechanism)
     content text notnull,
-    encryption_public_key text notnull,
+    encryption_public_key text notnull, // public key of encryptor
     issuer text notnull,
     inserter text,
     #credentials_human_id index(human_id),
@@ -90,27 +90,30 @@ table external_access_grants {
     tx_hash text,
     block_hash text,
     height int,
-    status text,
+    // data_id in contract can be any data, but idOS expects uuid of a credential, so we need a ststus field to makr validity of the access grant
+    status text, // valid, invalid_by_reason, ...
     #external_ag_data_id_grantee index(data_id, ag_grantee),
     #external_ag_data_id_owner index(data_id, ag_owner)
 }
 
+// A human/user gives a grant to write data (create a credential, share the credemtial) on his behalf to some issuer
 table write_grants {
     id uuid primary,
-    wg_owner text notnull,
-    wg_grantee text notnull,
-    wg_owner_human_id uuid notnull,
+    wg_owner text notnull, // human wallet/pk
+    wg_grantee text notnull, // issuer wallet/pk
+    wg_owner_human_id uuid notnull, // human's id, to be sure we will find the human if the owner's wallet will be deleted
     #write_grants_human_id_grantee unique(wg_owner_human_id, wg_grantee)
 }
 
+// internal access grants can be granted if such permission is in write_grants
 table internal_access_grants {
     id uuid primary,
     ag_owner text notnull,
     ag_grantee text notnull,
     data_id text notnull,
     locked_until int notnull,
-    wg_id uuid,
-    foreign_key (wg_id) references write_grants(id) on_delete set_null // TODO Maybe `set_null` is not the right decision?
+    write_grant_id uuid,
+    foreign_key (write_grant_id) references write_grants(id) on_delete set null
 }
 
 table configs {
@@ -785,6 +788,32 @@ procedure insert_shared_attr_as_owner($original_id uuid, $duplicate_id uuid) own
     VALUES ($original_id, $duplicate_id);
 }
 
+// Some entities no need special actions because main actions do the same
+// inserters:  add_inserter_as_owner
+// delegates: add_delegate_as_owner
+// configs: upsert_config_as_owner
+
+procedure insert_external_ags_as_owner($id uuid, $ag_owner text, $ag_grantee text, $data_id text,
+    $locked_until int, $ag_chain text, $tx_hash text, $block_hash text, $height int, $status text
+    ) owner public {
+    INSERT INTO external_access_grants (id, ag_owner, ag_grantee, data_id, locked_until, ag_chain,
+        tx_hash, block_hash, height, status)
+    VALUES ($id, $ag_owner, $ag_grantee, $data_id, $locked_until, $ag_chain,
+        $tx_hash, $block_hash, $height, $status);
+}
+
+procedure insert_internal_ags_as_owner($id uuid, $ag_owner text, $ag_grantee text, $data_id text,
+    $locked_until int, $write_grant_id uuid) owner public {
+    INSERT INTO internal_access_grants (id, ag_owner, ag_grantee, data_id, locked_until, write_grant_id)
+    VALUES ($id, $ag_owner, $ag_grantee, $data_id, $locked_until, $write_grant_id);
+}
+
+procedure insert_write_grants_as_owner($id uuid, $wg_owner text, $wg_grantee text, $wg_owner_human_id uuid) owner public {
+    INSERT INTO write_grants (id, wg_owner, wg_grantee, wg_owner_human_id)
+    VALUES ($id, $wg_owner, $wg_grantee, $wg_owner_human_id);
+}
+
+
 // ACTIONS FOR IN-SCHEMA DATA MIGRATION
 
 procedure all_humans_as_owner() public view owner returns table (id uuid, current_public_key text, inserter text){
@@ -823,9 +852,19 @@ procedure all_delegates_as_owner() public view owner returns table (address text
     return SELECT address, inserter_id FROM delegates;
 }
 
-procedure all_grants_as_owner() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
+procedure all_external_grants_as_owner() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
     data_id text, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
     return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM external_access_grants;
+}
+
+procedure all_internal_grants_as_owner() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
+    data_id text, locked_until int, write_grant_id uuid) {
+    return SELECT id, ag_owner, ag_grantee, data_id, locked_until, write_grant_id FROM internal_access_grants;
+}
+
+procedure all_write_grants_as_owner() public view owner returns table (id uuid, wg_owner text, wg_grantee text,
+    wg_owner_human_id uuid) {
+    return SELECT id, wg_owner, wg_grantee, wg_owner_human_id FROM write_grants;
 }
 
 procedure all_configs_as_owner() public view owner returns table (config_key text, value text) {
