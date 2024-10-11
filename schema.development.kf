@@ -108,10 +108,10 @@ table write_grants {
 // internal access grants can be granted if such permission is in write_grants
 table internal_access_grants {
     id uuid primary,
-    ag_owner text notnull,
+    ag_owner_human_id uuid notnull,
     ag_grantee text notnull,
-    data_id text notnull,
-    locked_until int notnull,
+    data_id uuid notnull,
+    locked_until int notnull default(0),
     write_grant_id uuid,
     foreign_key (write_grant_id) references write_grants(id) on_delete set null
 }
@@ -342,14 +342,10 @@ procedure add_credential_by_write_grant(
     $encryption_public_key text,
     $issuer text) public {
 
-    $wg_id := get_write_grant_id($human_id);
-
-    if $wg_id == '' {
-        error('there is no write grant found');
-    }
+    $wg_id := get_write_grant_id($human_id); // throw an error if no write_grant
 
     INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
-    VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, $wg_id);
+    VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, $wg_id::TEXT);
 }
 
 // TODO: change to procedure
@@ -460,32 +456,43 @@ procedure share_credential_by_write_grant(
     $id uuid,
     $human_id uuid,
     $original_credential_id uuid,
-    // TODO add grantee
-    // TODO add timelock
     $credential_type text,
     $credential_level text,
     $credential_status text,
     $content text,
     $encryption_public_key text,
+    $grantee text,
+    $locked_until int,
     $issuer text) public {
 
-    $wg_id := get_write_grant_id($human_id);
-    if $wg_id == '' {
-        error('there is no write grant found');
+    if $locked_until < 0 {
+        error('locked_until must be positive integer timestamp or zero');
     }
+
+    $wg_id := get_write_grant_id($human_id); // throw an error if no write_grant
 
     if !credential_belongs_to_human($original_credential_id, $human_id) {
         error('the original credential does not belong to the human');
     }
 
-    if $wg_id != get_credential_inserter($original_credential_id) {
+    if $wg_id::TEXT != get_credential_inserter($original_credential_id) {
         error('you can share only original credentials you created');
     }
 
     INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
-        VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, $wg_id);
+        VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer, $wg_id::TEXT);
+
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
-    INSERT INTO internal_access_grants(); //TODO write the actual code
+
+    INSERT INTO internal_access_grants (id, ag_owner_human_id, ag_grantee, data_id, locked_until, write_grant_id)
+        VALUES (
+            uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee, $id, $locked_until)),
+            $human_id,
+            $grantee,
+            $id,
+            $locked_until,
+            $wg_id
+        );
 }
 
 @kgw(authn='true')
@@ -727,12 +734,12 @@ procedure remove_write_grant($id uuid) public owner {
     DELETE FROM write_grants WHERE id = $id;
 }
 
-procedure get_write_grant_id($human_id uuid) private view returns (id text) {
+procedure get_write_grant_id($human_id uuid) private view returns (id uuid) {
     for $row in SELECT id FROM write_grants WHERE wg_owner_human_id = $human_id AND wg_grantee = @caller COLLATE NOCASE LIMIT 1 {
-        return $row.id::TEXT;
+        return $row.id;
     }
 
-    return '';
+    error('there is no write grant found');
 }
 
 
@@ -802,10 +809,10 @@ procedure insert_external_ags_as_owner($id uuid, $ag_owner text, $ag_grantee tex
         $tx_hash, $block_hash, $height, $status);
 }
 
-procedure insert_internal_ags_as_owner($id uuid, $ag_owner text, $ag_grantee text, $data_id text,
+procedure insert_internal_ags_as_owner($id uuid, $ag_owner_human_id uuid, $ag_grantee text, $data_id uuid,
     $locked_until int, $write_grant_id uuid) owner public {
-    INSERT INTO internal_access_grants (id, ag_owner, ag_grantee, data_id, locked_until, write_grant_id)
-    VALUES ($id, $ag_owner, $ag_grantee, $data_id, $locked_until, $write_grant_id);
+    INSERT INTO internal_access_grants (id, ag_owner_human_id, ag_grantee, data_id, locked_until, write_grant_id)
+    VALUES ($id, $ag_owner_human_id, $ag_grantee, $data_id, $locked_until, $write_grant_id);
 }
 
 procedure insert_write_grants_as_owner($id uuid, $wg_owner text, $wg_grantee text, $wg_owner_human_id uuid) owner public {
@@ -857,9 +864,9 @@ procedure all_external_grants_as_owner() public view owner returns table (id uui
     return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM external_access_grants;
 }
 
-procedure all_internal_grants_as_owner() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
-    data_id text, locked_until int, write_grant_id uuid) {
-    return SELECT id, ag_owner, ag_grantee, data_id, locked_until, write_grant_id FROM internal_access_grants;
+procedure all_internal_grants_as_owner() public view owner returns table (id uuid, ag_owner_human_id uuid, ag_grantee text,
+    data_id uuid, locked_until int, write_grant_id uuid) {
+    return SELECT id, ag_owner_human_id, ag_grantee, data_id, locked_until, write_grant_id FROM internal_access_grants;
 }
 
 procedure all_write_grants_as_owner() public view owner returns table (id uuid, wg_owner text, wg_grantee text,
