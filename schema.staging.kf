@@ -80,19 +80,19 @@ table delegates {
     foreign_key (inserter_id) references inserters(id) on_delete cascade
 }
 
-table access_grants {
+table external_access_grants {
     id uuid primary,
     ag_owner text notnull,
     ag_grantee text notnull,
     data_id text notnull,
-    locked_until int,
+    locked_until int notnull,
     ag_chain text notnull,
     tx_hash text,
     block_hash text,
     height int,
     status text,
-    #access_grants_data_id_grantee index(data_id, ag_grantee),
-    #access_grants_data_id_owner index(data_id, ag_owner)
+    #external_ag_data_id_grantee index(data_id, ag_grantee),
+    #external_ag_data_id_owner index(data_id, ag_owner)
 }
 
 table configs {
@@ -455,7 +455,7 @@ procedure get_credential_shared ($id uuid) public view returns table (id uuid, h
     $granted bool := false;
     $grant_valid bool := false;
 
-    for $row in SELECT status FROM access_grants WHERE data_id = $id::TEXT AND ag_grantee = @caller COLLATE NOCASE {
+    for $row in SELECT status FROM external_access_grants WHERE data_id = $id::TEXT AND ag_grantee = @caller COLLATE NOCASE {
         $granted := true;
         if $row.status == 'valid' {
             $grant_valid := true;
@@ -565,14 +565,14 @@ procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key 
 procedure list_ag_statuses($data_id text) public view returns table (ag_owner text, ag_grantee text, locked_until int, status text) {
     return
         SELECT ag_owner, ag_grantee, locked_until, status
-        FROM access_grants
+        FROM external_access_grants
         WHERE data_id = $data_id
           AND ag_grantee = @caller;
 }
 
 @kgw(authn='true')
 procedure has_locked_grants($id uuid) public view returns (has bool) {
-    for $row in SELECT 1 FROM access_grants
+    for $row in SELECT 1 FROM external_access_grants
             WHERE data_id = $id::TEXT
             AND ag_owner = @caller COLLATE NOCASE
             AND status = 'valid'
@@ -697,9 +697,9 @@ procedure all_delegates_as_owner() public view owner returns table (address text
 
 procedure all_grants_as_owner() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
     data_id text, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
-    return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM access_grants;
+    return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM external_access_grants;
 }
 
-procedure all_configs_as_owner () public view owner returns table (config_key text, value text) {
+procedure all_configs_as_owner() public view owner returns table (config_key text, value text) {
     return SELECT config_key, value FROM configs;
 }
