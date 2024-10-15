@@ -733,8 +733,15 @@ procedure add_write_grant($wg_grantee text) public {
     );
 }
 
+procedure remove_write_grant($wg_grantee text) public {
+    DELETE FROM write_grants
+        WHERE wg_grantee = $wg_grantee COLLATE NOCASE
+        AND wg_owner_human_id = (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller));
+}
+
 // Not sure we need this. But at least for testing it is valuable.
-procedure remove_write_grant($id uuid) public owner {
+procedure remove_write_grant_as_owner($id uuid) public owner {
     DELETE FROM write_grants WHERE id = $id;
 }
 
