@@ -90,7 +90,7 @@ table external_access_grants {
     tx_hash text,
     block_hash text,
     height int,
-    // data_id in contract can be any data, but idOS expects uuid of a credential, so we need a ststus field to makr validity of the access grant
+    // data_id in contract can be any data, but idOS expects uuid of a credential, so we need a ststus field to mark validity of the access grant
     status text, // valid, invalid_by_reason, ...
     #external_ag_data_id_grantee index(data_id, ag_grantee),
     #external_ag_data_id_owner index(data_id, ag_owner)
@@ -738,11 +738,6 @@ procedure remove_write_grant($wg_grantee text) public {
         WHERE wg_grantee = $wg_grantee COLLATE NOCASE
         AND wg_owner_human_id = (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller));
-}
-
-// Not sure we need this. But at least for testing it is valuable.
-procedure remove_write_grant_as_owner($id uuid) public owner {
-    DELETE FROM write_grants WHERE id = $id;
 }
 
 procedure get_write_grant_id($human_id uuid) private view returns (id uuid) {
