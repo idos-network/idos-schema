@@ -1,4 +1,4 @@
-database idos;
+database idos_mig;
 
 // EXTENSION INITIALIZATION
 
@@ -878,16 +878,35 @@ procedure insert_write_grants_as_owner($id uuid, $wg_owner text, $wg_grantee tex
 }
 
 
-// ACTIONS FOR IN-SCHEMA DATA MIGRATION
+// ACTIONS FOR IN-SCHEMA DATA MIGRATION (OWNER)
 
-procedure all_humans_as_owner() public view owner returns table (id uuid, current_public_key text, inserter text){
+procedure all_humans_as_owner() public view owner returns table (id uuid, current_public_key text, inserter text) {
     return SELECT id, current_public_key, inserter FROM humans;
 }
 
+foreign procedure get_all_humans() returns table(id uuid, current_public_key text, inserter text)
+
+procedure migrate_humans($dbid text) public owner {
+    for $row in SELECT id, current_public_key, inserter FROM get_all_humans[$dbid, 'all_humans_as_owner']() {
+        INSERT INTO humans (id, current_public_key, inserter) VALUES ($row.id, $row.current_public_key, $row.inserter);
+    }
+}
+
 procedure all_wallets_as_owner() public view owner returns table (id uuid, human_id uuid, address text, public_key text,
-    wallet_type text, message text, signature text, inserter text) {
+wallet_type text, message text, signature text, inserter text) {
     return SELECT id, human_id, address, public_key, wallet_type, message, signature, inserter FROM wallets;
 }
+
+foreign procedure get_all_wallets() returns table (id uuid, human_id uuid, address text, public_key text,
+wallet_type text, message text, signature text, inserter text)
+
+procedure migrate_wallets($dbid text) public owner {
+    for $row in SELECT id, human_id, address, public_key, wallet_type, message, signature, inserter FROM get_all_wallets[$dbid, 'all_wallets_as_owner']() {
+        INSERT INTO wallets (id, human_id, address, public_key, wallet_type, message, signature, inserter)
+            VALUES ($row.id, $row.human_id, $row.address, $row.public_key, $row.wallet_type, $row.message, $row.signature, $row.inserter);
+    }
+}
+
 
 procedure all_credentials_as_owner() public view owner returns table (id uuid, human_id uuid, credential_type text,
     credential_level text, credential_status text, content text, encryption_public_key text, issuer text, inserter text) {
@@ -895,42 +914,162 @@ procedure all_credentials_as_owner() public view owner returns table (id uuid, h
         issuer, inserter FROM credentials;
 }
 
+foreign procedure get_all_credentials() returns table (id uuid, human_id uuid, credential_type text,
+credential_level text, credential_status text, content text, encryption_public_key text, issuer text, inserter text)
+
+procedure migrate_credentials($dbid text) public owner {
+    for $row in SELECT id, human_id, credential_type, credential_level, credential_status, content,
+        encryption_public_key, issuer, inserter FROM get_all_credentials[$dbid, 'all_credentials_as_owner']() {
+        INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content,
+            encryption_public_key, issuer, inserter)
+        VALUES ($row.id, $row.human_id, $row.credential_type, $row.credential_level, $row.credential_status, $row.content,
+            $row.encryption_public_key, $row.issuer, $row.inserter);
+    }
+}
+
+
 procedure all_shared_credentials_as_owner() public view owner returns table (original_id uuid, duplicate_id uuid) {
     return SELECT original_id, duplicate_id FROM shared_credentials;
 }
+
+foreign procedure get_all_shared_credentials() returns table (original_id uuid, duplicate_id uuid)
+
+procedure migrate_shared_credentials($dbid text) public owner {
+    for $row in SELECT original_id, duplicate_id FROM get_all_shared_credentials[$dbid, 'all_shared_credentials_as_owner']() {
+        INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($row.original_id, $row.duplicate_id);
+    }
+}
+
 
 procedure all_human_attributes_as_owner() public view owner returns table (id uuid, human_id uuid, attribute_key text,
     value text, inserter text) {
     return SELECT id, human_id, attribute_key, value, inserter FROM human_attributes;
 }
 
+foreign procedure get_all_human_attributes() returns table (id uuid, human_id uuid, attribute_key text, value text, inserter text)
+
+procedure migrate_human_attributes($dbid text) public owner {
+    for $row in SELECT id, human_id, attribute_key, value, inserter FROM get_all_human_attributes[$dbid, 'all_human_attributes_as_owner']() {
+        INSERT INTO human_attributes (id, human_id, attribute_key, value, inserter)
+        VALUES ($row.id, $row.human_id, $row.attribute_key, $row.value, $row.inserter);
+    }
+}
+
+
 procedure all_shared_human_attrs_as_owner() public view owner returns table (original_id uuid, duplicate_id uuid) {
     return SELECT original_id, duplicate_id FROM shared_human_attributes;
 }
+
+foreign procedure get_all_shared_human_attrs() returns table (original_id uuid, duplicate_id uuid)
+
+procedure migrate_shared_human_attrs($dbid text) public owner {
+    for $row in SELECT original_id, duplicate_id FROM get_all_shared_human_attrs[$dbid, 'all_shared_human_attrs_as_owner']() {
+        INSERT INTO shared_human_attributes (original_id, duplicate_id) VALUES ($row.original_id, $row.duplicate_id);
+    }
+}
+
 
 procedure all_inserters_as_owner() public view owner returns table (id uuid, name text) {
     return SELECT id, name FROM inserters;
 }
 
+foreign procedure get_all_inserters() returns table (id uuid, name text)
+
+procedure migrate_inserters($dbid text) public owner {
+    for $row in SELECT id, name FROM get_all_inserters[$dbid, 'all_inserters_as_owner']() {
+        INSERT INTO inserters (id, name) VALUES ($row.id, $row.name);
+    }
+}
+
+
 procedure all_delegates_as_owner() public view owner returns table (address text, inserter_id uuid) {
     return SELECT address, inserter_id FROM delegates;
 }
+
+foreign procedure get_all_delegates() returns table (address text, inserter_id uuid)
+
+procedure migrate_delegates($dbid text) public owner {
+    for $row in SELECT address, inserter_id FROM get_all_delegates[$dbid, 'all_delegates_as_owner']() {
+        INSERT INTO delegates (address, inserter_id) VALUES ($row.address, $row.inserter_id);
+    }
+}
+
 
 procedure all_external_grants_as_owner() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
     data_id text, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
     return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM external_access_grants;
 }
 
+foreign procedure get_all_external_grants() returns table (id uuid, ag_owner text, ag_grantee text,
+    data_id text, locked_until int, ag_chain text, tx_hash text, height int, block_hash text)
+
+procedure migrate_external_grants($dbid text) public owner {
+    for $row in SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash
+        FROM get_all_external_grants[$dbid, 'all_external_grants_as_owner']() {
+        INSERT INTO external_access_grants (id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash)
+            VALUES ($row.id, $row.ag_owner, $row.ag_grantee, $row.data_id, $row.locked_until, $row.ag_chain,
+            $row.tx_hash, $row.height, $row.block_hash);
+    }
+}
+
+
 procedure all_internal_grants_as_owner() public view owner returns table (id uuid, ag_owner_human_id uuid, ag_grantee text,
     data_id uuid, locked_until int, write_grant_id uuid) {
     return SELECT id, ag_owner_human_id, ag_grantee, data_id, locked_until, write_grant_id FROM internal_access_grants;
 }
+
+foreign procedure get_all_internal_grants() returns table (id uuid, ag_owner_human_id uuid, ag_grantee text,
+    data_id uuid, locked_until int, write_grant_id uuid)
+
+procedure migrate_internal_grants($dbid text) public owner {
+    for $row in SELECT id, ag_owner_human_id, ag_grantee, data_id, locked_until, write_grant_id
+        FROM get_all_internal_grants[$dbid, 'all_internal_grants_as_owner']() {
+        INSERT INTO internal_access_grants (id, ag_owner_human_id, ag_grantee, data_id, locked_until, write_grant_id)
+            VALUES ($row.id, $row.ag_owner_human_id, $row.ag_grantee, $row.data_id, $row.locked_until, $row.write_grant_id);
+    }
+}
+
 
 procedure all_write_grants_as_owner() public view owner returns table (id uuid, wg_owner text, wg_grantee text,
     wg_owner_human_id uuid) {
     return SELECT id, wg_owner, wg_grantee, wg_owner_human_id FROM write_grants;
 }
 
+foreign procedure get_all_write_grants() returns table (id uuid, wg_owner text, wg_grantee text, wg_owner_human_id uuid)
+
+procedure migrate_write_grants($dbid text) public owner {
+    for $row in SELECT id, wg_owner, wg_grantee, wg_owner_human_id FROM get_all_write_grants[$dbid, 'all_write_grants_as_owner']() {
+        INSERT INTO write_grants (id, wg_owner, wg_grantee, wg_owner_human_id)
+            VALUES ($row.id, $row.wg_owner, $row.wg_grantee, $row.wg_owner_human_id);
+    }
+}
+
+
 procedure all_configs_as_owner() public view owner returns table (config_key text, value text) {
     return SELECT config_key, value FROM configs;
+}
+
+foreign procedure get_all_configs() returns table (config_key text, value text)
+
+procedure migrate_configs($dbid text) public owner {
+    for $row in SELECT config_key, value FROM get_all_configs[$dbid, 'all_configs_as_owner']() {
+        INSERT INTO configs (config_key, value)
+            VALUES ($row.config_key, $row.value);
+    }
+}
+
+// The sequence of inserting of tables is important
+procedure migrate_all_data($dbid text) public owner {
+    migrate_humans($dbid);
+    migrate_wallets($dbid);
+    migrate_credentials($dbid);
+    migrate_shared_credentials($dbid);
+    migrate_human_attributes($dbid);
+    migrate_shared_human_attrs($dbid);
+    migrate_inserters($dbid);
+    migrate_delegates($dbid);
+    migrate_external_grants($dbid);
+    migrate_write_grants($dbid); // WGs must be inserted before internal AGs
+    migrate_internal_grants($dbid);
+    migrate_configs($dbid);
 }
