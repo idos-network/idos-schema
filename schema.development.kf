@@ -487,7 +487,7 @@ procedure share_credential_by_write_grant(
 
     $generated_uuid := uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee, $original_credential_id, $locked_until));
     for $row in SELECT 1 FROM internal_access_grants WHERE id = $generated_uuid LIMIT 1 {
-        error('the grant with the same grantee, original_credential_id and locked_until exists');
+        error('a grant with the same grantee, original_credential_id, and locked_until already exists');
     }
 
     INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key, issuer, inserter)
