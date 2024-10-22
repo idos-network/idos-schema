@@ -112,8 +112,11 @@ table internal_access_grants {
     ag_grantee text notnull,
     data_id uuid notnull,
     locked_until int notnull default(0),
-    write_grant_id uuid,
-    foreign_key (write_grant_id) references write_grants(id) on_delete set null
+    write_grant_id uuid, // This should be notnull, but we do set it to null in the FK.
+    foreign_key (write_grant_id) references write_grants(id) on_delete set null,
+    #iag_data_id index(data_id),
+    #iag_ag_grantee index(ag_grantee),
+    #iag_ag_owner_human_id index(ag_owner_human_id)
 }
 
 table configs {
@@ -1007,7 +1010,7 @@ foreign procedure get_all_external_grants() returns table (id uuid, ag_owner tex
 
 procedure migrate_external_grants($dbid text) public owner {
     for $row in SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash
-        FROM get_all_external_grants[$dbid, 'all_grants_as_owner']() { // TODO Change this to all_external_grants_as_owner after migration
+        FROM get_all_external_grants[$dbid, 'all_external_grants_as_owner']() {
         INSERT INTO external_access_grants (id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash)
             VALUES ($row.id, $row.ag_owner, $row.ag_grantee, $row.data_id, $row.locked_until, $row.ag_chain,
             $row.tx_hash, $row.height, $row.block_hash);
@@ -1071,7 +1074,7 @@ procedure migrate_all_data($old_dbid text) public owner {
     migrate_inserters($old_dbid);
     migrate_delegates($old_dbid);
     migrate_external_grants($old_dbid);
-    // migrate_write_grants($old_dbid); // WGs must be inserted before internal AGs
-    // migrate_internal_grants($old_dbid);
+    migrate_write_grants($old_dbid); // WGs must be inserted before internal AGs
+    migrate_internal_grants($old_dbid);
     migrate_configs($old_dbid);
 }
