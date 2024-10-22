@@ -1061,17 +1061,17 @@ procedure migrate_configs($dbid text) public owner {
 }
 
 // The sequence of inserting of tables is important
-procedure migrate_all_data($dbid text) public owner {
-    migrate_humans($dbid);
-    migrate_wallets($dbid);
-    migrate_credentials($dbid);
-    migrate_shared_credentials($dbid);
-    migrate_human_attributes($dbid);
-    migrate_shared_human_attrs($dbid);
-    migrate_inserters($dbid);
-    migrate_delegates($dbid);
-    migrate_external_grants($dbid);
-    migrate_write_grants($dbid); // WGs must be inserted before internal AGs
-    migrate_internal_grants($dbid);
-    migrate_configs($dbid);
+procedure migrate_all_data($old_dbid text) public owner {
+    migrate_humans($old_dbid);
+    migrate_wallets($old_dbid);
+    migrate_credentials($old_dbid);
+    migrate_shared_credentials($old_dbid);
+    migrate_human_attributes($old_dbid);
+    migrate_shared_human_attrs($old_dbid);
+    migrate_inserters($old_dbid);
+    migrate_delegates($old_dbid);
+    migrate_external_grants($old_dbid);
+    migrate_write_grants($old_dbid); // WGs must be inserted before internal AGs
+    migrate_internal_grants($old_dbid);
+    migrate_configs($old_dbid);
 }
