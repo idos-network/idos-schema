@@ -354,7 +354,7 @@ procedure add_credential_by_write_grant(
 // TODO: change to procedure
 @kgw(authn='true')
 action get_credentials() public view {
-	SELECT DISTINCT c.id, c.human_id, c.inserter, c.credential_type, c.credential_level, c.credential_status, c.issuer, sc.original_id AS original_id
+    SELECT DISTINCT c.id, c.human_id, c.inserter, c.credential_type, c.credential_level, c.credential_status, c.issuer, sc.original_id AS original_id
     FROM credentials AS c
     LEFT JOIN shared_credentials AS sc ON c.id = sc.duplicate_id
     INNER JOIN wallets ON c.human_id = wallets.human_id
@@ -623,7 +623,7 @@ procedure add_attribute($id uuid, $attribute_key text, $value text) public {
 // TODO: change to procedure
 @kgw(authn='true')
 action get_attributes() public view {
-	SELECT DISTINCT ha.id, ha.human_id, ha.attribute_key, ha.value, sha.original_id AS original_id
+    SELECT DISTINCT ha.id, ha.human_id, ha.attribute_key, ha.value, sha.original_id AS original_id
     FROM human_attributes AS ha
     LEFT JOIN shared_human_attributes AS sha ON ha.id = sha.duplicate_id
     INNER JOIN wallets ON ha.human_id = wallets.human_id
