@@ -112,8 +112,11 @@ table internal_access_grants {
     ag_grantee text notnull,
     data_id uuid notnull,
     locked_until int notnull default(0),
-    write_grant_id uuid,
-    foreign_key (write_grant_id) references write_grants(id) on_delete set null
+    write_grant_id uuid, // This should be notnull, but we do set it to null in the FK.
+    foreign_key (write_grant_id) references write_grants(id) on_delete set null,
+    #iag_data_id index(data_id),
+    #iag_ag_grantee index(ag_grantee),
+    #iag_ag_owner_human_id index(ag_owner_human_id)
 }
 
 table configs {
