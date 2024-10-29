@@ -163,14 +163,14 @@ procedure delete_delegate_as_owner($address text) owner public {
 }
 
 procedure get_inserter() private view returns (name text) {
-    for $row in SELECT inserters.name FROM inserters INNER JOIN delegates ON inserters.id = delegates.inserter_id WHERE delegates.address = @caller {
+    for $row in SELECT inserters.name FROM inserters INNER JOIN delegates ON inserters.id = delegates.inserter_id WHERE delegates.address = @caller COLLATE NOCASE {
         return $row.name;
     }
     error('Unauthorized inserter');
 }
 
 procedure get_inserter_or_null() private view returns (name text) {
-    for $row in SELECT inserters.name FROM inserters INNER JOIN delegates ON inserters.id = delegates.inserter_id WHERE delegates.address = @caller {
+    for $row in SELECT inserters.name FROM inserters INNER JOIN delegates ON inserters.id = delegates.inserter_id WHERE delegates.address = @caller COLLATE NOCASE {
         return $row.name;
     }
     return null;
@@ -685,7 +685,7 @@ procedure list_external_ag_statuses($data_id text) public view returns table (ag
         SELECT ag_owner, ag_grantee, locked_until, status
         FROM external_access_grants
         WHERE data_id = $data_id
-          AND ag_grantee = @caller;
+          AND ag_grantee = @caller COLLATE NOCASE;
 }
 
 // This procedure is used in an oracle resolution to determine the status of a AG at the moment of adding it into idOS
@@ -782,7 +782,7 @@ procedure get_internal_ag_owned () public view returns table (id uuid, ag_owner_
 procedure get_internal_ag_granted () public view returns table (id uuid, ag_owner_human_id uuid,
     ag_grantee text, data_id uuid, locked_until int) {
     return SELECT id, ag_owner_human_id, ag_grantee, data_id, locked_until FROM internal_access_grants
-        WHERE ag_grantee =  @caller;
+        WHERE ag_grantee = @caller COLLATE NOCASE;
 }
 
 
