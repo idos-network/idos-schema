@@ -52,7 +52,7 @@ table credentials2 {
     encryption_public_key text notnull, // public key of encryptor
     issuer text notnull,
     inserter text,
-    #credentials_human_id index(human_id),
+    #credentials_human_id2 index(human_id),
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
@@ -344,8 +344,8 @@ action upsert_credential_as_inserter2(
 ) public {
     SELECT get_inserter(); // throw an error if not authorized
 
-    $result = idos.assertCredentialSignatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
-    SELECT CASE WHEN $result != 'ok' THEN ERROR('assertCredentialSignatures:' || $result) END;
+    $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
+    SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures: ' || $result) END;
 
     INSERT INTO credentials2 (id, human_id, public_notes, public_notes_signature, content, broader_signature, encryption_public_key, issuer, inserter)
     VALUES ($id, $human_id, $public_notes, $public_notes_signature, $content, $broader_signature, $encryption_public_key, $issuer, get_inserter())
@@ -379,8 +379,8 @@ action add_credential2(
 , $public_notes_signature
 , $broader_signature
 ) public {
-    $result = idos.assertCredentialSignatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
-    SELECT CASE WHEN $result != 'ok' THEN ERROR('assertCredentialSignatures:' || $result) END;
+    $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
+    SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
 
     INSERT INTO credentials2 (id, human_id, public_notes, public_notes_signature, content, broader_signature, encryption_public_key, issuer)
     VALUES (
@@ -425,8 +425,8 @@ action add_credential_by_write_grant2(
 ) public {
     SELECT get_write_grant_id($human_id); // throw an error if no write_grant
 
-    $result = idos.assertCredentialSignatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
-    SELECT CASE WHEN $result != 'ok' THEN ERROR('assertCredentialSignatures:' || $result) END;
+    $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
+    SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
 
     INSERT INTO credentials2 (id, human_id, public_notes, public_notes_signature, content, broader_signature, encryption_public_key, issuer, inserter)
     VALUES (
@@ -581,8 +581,8 @@ action share_credential_through_dag2 (
     END;
 
     // TODO: creds2: The caller needs to re-generate public_notes_signature and broader_signature.
-    $result = idos.assertCredentialSignatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
-    SELECT CASE WHEN $result != 'ok' THEN ERROR('assertCredentialSignatures:' || $result) END;
+    $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
+    SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
 
     SELECT CASE
     WHEN NOT EXISTS (
@@ -686,8 +686,8 @@ action share_credential_by_write_grant2(
         error('a grant with the same grantee, original_credential_id, and locked_until already exists')
     END;
 
-    $result = idos.assertCredentialSignatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
-    SELECT CASE WHEN $result != 'ok' THEN ERROR('assertCredentialSignatures:' || $result) END;
+    $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
+    SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
 
     INSERT INTO credentials2 ( id,  human_id,  public_notes,  public_notes_signature,  content,  broader_signature,  encryption_public_key,  issuer, inserter)
                       VALUES ($id, $human_id, $public_notes, $public_notes_signature, $content, $broader_signature, $encryption_public_key, $issuer, get_write_grant_id($human_id)::text);
