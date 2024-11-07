@@ -445,6 +445,7 @@ action add_credential_by_write_grant2(
 // TODO: change to procedure
 @kgw(authn='true')
 action get_credentials() public view {
+    // TODO: creds2: change returned fields to be the new ones.
     SELECT DISTINCT c.id, c.human_id, c.inserter, c.credential_type, c.credential_level, c.credential_status, c.issuer, sc.original_id AS original_id
     FROM credentials AS c
     LEFT JOIN shared_credentials AS sc ON c.id = sc.duplicate_id
@@ -467,6 +468,7 @@ action edit_credential($id, $credential_type, $credential_level, $credential_sta
                     OR (wallet_type = 'NEAR' AND public_key = @caller))
         ) THEN ERROR('Can not edit shared credential') END;
 
+    // TODO: creds2: change returned fields to be the new ones.
     UPDATE credentials
     SET credential_type=$credential_type, credential_level=$credential_level, credential_status=$credential_status,
         content=$content, encryption_public_key=$encryption_public_key, issuer=$issuer
@@ -580,7 +582,6 @@ action share_credential_through_dag2 (
         WHEN $owner_verified != 1 THEN ERROR('the signature is invalid')
     END;
 
-    // TODO: creds2: The caller needs to re-generate public_notes_signature and broader_signature.
     $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
     SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
 
@@ -764,6 +765,8 @@ procedure get_credential_shared ($id uuid) public view returns table (id uuid, h
         }
     }
 
+    // TODO: creds2: publicNotes are going to be empty on the copies. We need to start doing joins to get
+    // that field from the original credential.
     return SELECT id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key,
         issuer, inserter FROM credentials WHERE id = $id;
 }
@@ -1038,6 +1041,7 @@ procedure insert_wallet_as_owner($id uuid, $human_id uuid, $address text, $publi
 
 procedure insert_credential_as_owner($id uuid, $human_id uuid, $credential_type text, $credential_level text,
     $credential_status text, $content text, $encryption_public_key text, $issuer text, $inserter text) owner public {
+    // TODO: creds2: change inserted fields to be the new ones.
     INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content,
     encryption_public_key, issuer, inserter)
     VALUES ($id, $human_id, $credential_type, $credential_level, $credential_status, $content,
@@ -1117,6 +1121,7 @@ procedure migrate_wallets($dbid text) public owner {
 
 procedure all_credentials_as_owner() public view owner returns table (id uuid, human_id uuid, credential_type text,
     credential_level text, credential_status text, content text, encryption_public_key text, issuer text, inserter text) {
+    // TODO: creds2: change selected fields to be the new ones.
     return SELECT id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key,
         issuer, inserter FROM credentials;
 }
@@ -1127,6 +1132,7 @@ credential_level text, credential_status text, content text, encryption_public_k
 procedure migrate_credentials($dbid text) public owner {
     for $row in SELECT id, human_id, credential_type, credential_level, credential_status, content,
         encryption_public_key, issuer, inserter FROM get_all_credentials[$dbid, 'all_credentials_as_owner']() {
+        // TODO: creds2: change inserted fields to be the new ones.
         INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content,
             encryption_public_key, issuer, inserter)
         VALUES ($row.id, $row.human_id, $row.credential_type, $row.credential_level, $row.credential_status, $row.content,
