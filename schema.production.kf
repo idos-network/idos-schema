@@ -468,9 +468,38 @@ action edit_credential($id, $credential_type, $credential_level, $credential_sta
                     OR (wallet_type = 'NEAR' AND public_key = @caller))
         ) THEN ERROR('Can not edit shared credential') END;
 
-    // TODO: creds2: change returned fields to be the new ones.
     UPDATE credentials
     SET credential_type=$credential_type, credential_level=$credential_level, credential_status=$credential_status,
+        content=$content, encryption_public_key=$encryption_public_key, issuer=$issuer
+    WHERE id=$id
+    AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+        OR (wallet_type = 'NEAR' AND public_key = @caller)
+    );
+}
+
+action edit_credential2(
+  $id
+, $public_notes
+, $public_notes_signature
+, $broader_signature
+, $content
+, $encryption_public_key
+, $issuer
+) public {
+    SELECT CASE
+        WHEN EXISTS (
+            SELECT 1 from credentials2 AS c
+                INNER JOIN shared_credentials AS sc on c.id = sc.duplicate_id
+                WHERE c.id = $id
+                AND c.human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+                    OR (wallet_type = 'NEAR' AND public_key = @caller))
+        ) THEN ERROR('Can not edit shared credential') END;
+
+    $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
+    SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
+
+    UPDATE credentials2
+    SET public_notes=$public_notes, public_notes_signature=$public_notes_signature, broader_signature=$broader_signature,
         content=$content, encryption_public_key=$encryption_public_key, issuer=$issuer
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
@@ -511,6 +540,36 @@ procedure share_credential(
     }
 
     add_credential($id, $credential_type, $credential_level, $credential_status, $content, $encryption_public_key, $issuer);
+    INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+}
+
+action share_credential2 (
+  $id
+, $original_credential_id
+, $public_notes
+, $public_notes_signature
+, $broader_signature
+, $content
+, $encryption_public_key
+, $issuer
+) public {
+    SELECT CASE WHEN NOT credential_belongs_to_caller($original_credential_id) THEN
+        error('The original credential does not belong to the caller')
+    END;
+
+    SELECT CASE WHEN $public_notes != '' THEN
+        error('shared credentials cannot have public_notes, it must be an empty string')
+    END;
+
+    add_credential2(
+        $id
+      , $issuer
+      , $encryption_public_key
+      , $content
+      , $public_notes
+      , $public_notes_signature
+      , $broader_signature
+    );
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 }
 
@@ -570,29 +629,37 @@ action share_credential_through_dag2 (
 , $dag_locked_until
 , $dag_signature
 ) public {
-    SELECT CASE
-    WHEN NOT EXISTS (
+    SELECT CASE WHEN NOT EXISTS (
         SELECT 1 from credentials2
             WHERE id = $original_credential_id
             AND human_id = $human_id
-    ) THEN ERROR('The original credential does not belong to the human') END;
+    ) THEN
+        error('The original credential does not belong to the human')
+    END;
 
     $owner_verified = idos.verify_owner($dag_owner, $dag_grantee, $id, $dag_locked_until, $dag_signature);
-    SELECT CASE
-        WHEN $owner_verified != 1 THEN ERROR('the signature is invalid')
+    SELECT CASE WHEN $owner_verified != 1 THEN
+        error('the signature is invalid')
+    END;
+
+    SELECT CASE WHEN $public_notes != '' THEN
+        error('shared credentials cannot have public_notes, it must be an empty string')
     END;
 
     $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
-    SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
+    SELECT CASE WHEN $result != 'ok' THEN
+        error('assert_credential_signatures:' || $result)
+    END;
 
-    SELECT CASE
-    WHEN NOT EXISTS (
+    SELECT CASE WHEN NOT EXISTS (
         SELECT 1 from humans
             INNER JOIN wallets ON humans.id = wallets.human_id
             WHERE wallet_type = 'EVM'
             AND address=$dag_owner COLLATE NOCASE
             AND human_id = $human_id
-    ) THEN ERROR('the DAG is not signed by the human') END;
+    ) THEN
+        error('the DAG is not signed by the human')
+    END;
 
     INSERT INTO credentials2 (id, human_id, public_notes, public_notes_signature, content, broader_signature, encryption_public_key, issuer, inserter)
     VALUES (
@@ -671,7 +738,9 @@ action share_credential_by_write_grant2(
 , $locked_until
 , $issuer
 ) public {
-    SELECT CASE WHEN $locked_until < 0 THEN error('locked_until must be positive integer timestamp or zero') END;
+    SELECT CASE WHEN $locked_until < 0 THEN
+        error('locked_until must be positive integer timestamp or zero')
+    END;
 
     SELECT get_write_grant_id($human_id); // throw an error if no write_grant
 
@@ -687,8 +756,12 @@ action share_credential_by_write_grant2(
         error('a grant with the same grantee, original_credential_id, and locked_until already exists')
     END;
 
+    SELECT CASE WHEN $public_notes != '' THEN
+        error('shared credentials cannot have public_notes, it must be an empty string')
+    END;
+
     $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
-    SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
+    SELECT CASE WHEN $result != 'ok' THEN error('assert_credential_signatures:' || $result) END;
 
     INSERT INTO credentials2 ( id,  human_id,  public_notes,  public_notes_signature,  content,  broader_signature,  encryption_public_key,  issuer, inserter)
                       VALUES ($id, $human_id, $public_notes, $public_notes_signature, $content, $broader_signature, $encryption_public_key, $issuer, get_write_grant_id($human_id)::text);
@@ -1121,7 +1194,6 @@ procedure migrate_wallets($dbid text) public owner {
 
 procedure all_credentials_as_owner() public view owner returns table (id uuid, human_id uuid, credential_type text,
     credential_level text, credential_status text, content text, encryption_public_key text, issuer text, inserter text) {
-    // TODO: creds2: change selected fields to be the new ones.
     return SELECT id, human_id, credential_type, credential_level, credential_status, content, encryption_public_key,
         issuer, inserter FROM credentials;
 }
@@ -1132,7 +1204,6 @@ credential_level text, credential_status text, content text, encryption_public_k
 procedure migrate_credentials($dbid text) public owner {
     for $row in SELECT id, human_id, credential_type, credential_level, credential_status, content,
         encryption_public_key, issuer, inserter FROM get_all_credentials[$dbid, 'all_credentials_as_owner']() {
-        // TODO: creds2: change inserted fields to be the new ones.
         INSERT INTO credentials (id, human_id, credential_type, credential_level, credential_status, content,
             encryption_public_key, issuer, inserter)
         VALUES ($row.id, $row.human_id, $row.credential_type, $row.credential_level, $row.credential_status, $row.content,
