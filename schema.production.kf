@@ -570,7 +570,7 @@ action share_credential_through_dag2 (
 ) public {
     SELECT CASE
     WHEN NOT EXISTS (
-        SELECT 1 from credentials
+        SELECT 1 from credentials2
             WHERE id = $original_credential_id
             AND human_id = $human_id
     ) THEN ERROR('The original credential does not belong to the human') END;
