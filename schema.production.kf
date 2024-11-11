@@ -65,6 +65,15 @@ table shared_credentials {
     foreign_key (duplicate_id) references credentials(id) on_delete cascade
 }
 
+table shared_credentials2 {
+    original_id uuid notnull,
+    duplicate_id uuid notnull,
+    #primary_key primary(original_id, duplicate_id),
+    #shared_credentials_duplicate_id2 index(duplicate_id),
+    foreign_key (original_id) references credentials2(id) on_delete cascade,
+    foreign_key (duplicate_id) references credentials2(id) on_delete cascade
+}
+
 table human_attributes {
     id uuid primary,
     human_id uuid notnull,
@@ -744,15 +753,15 @@ action share_credential_by_write_grant2(
 
     SELECT get_write_grant_id($human_id); // throw an error if no write_grant
 
-    SELECT CASE WHEN NOT credential_belongs_to_human($original_credential_id, $human_id) THEN
+    SELECT CASE WHEN NOT credential2_belongs_to_human($original_credential_id, $human_id) THEN
         error('the original credential does not belong to the human')
     END;
 
-    SELECT CASE WHEN get_write_grant_id($human_id)::text != get_credential_inserter($original_credential_id) THEN
+    SELECT CASE WHEN get_write_grant_id($human_id)::text != get_credential2_inserter($original_credential_id) THEN
         error('you can share only original credentials you created')
     END;
 
-    SELECT CASE WHEN (SELECT count(1) FROM internal_access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee, $original_credential_id, $locked_until))) > 0 THEN
+    SELECT CASE WHEN (SELECT count(1) FROM internal_access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee::text, $original_credential_id::text, $locked_until::text))) > 0 THEN
         error('a grant with the same grantee, original_credential_id, and locked_until already exists')
     END;
 
@@ -766,7 +775,7 @@ action share_credential_by_write_grant2(
     INSERT INTO credentials2 ( id,  human_id,  public_notes,  public_notes_signature,  content,  broader_signature,  encryption_public_key,  issuer, inserter)
                       VALUES ($id, $human_id, $public_notes, $public_notes_signature, $content, $broader_signature, $encryption_public_key, $issuer, get_write_grant_id($human_id)::text);
 
-    INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+    INSERT INTO shared_credentials2 (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 
     INSERT INTO internal_access_grants (
         id,
@@ -776,11 +785,11 @@ action share_credential_by_write_grant2(
         locked_until,
         write_grant_id
     ) VALUES (
-        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee, $original_credential_id, $locked_until)),
+        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee::text, $original_credential_id::text, $locked_until::text)),
         $human_id,
         $grantee,
         $id,
-        $locked_until,
+        0, // TODO: creds2: why doesn't this work? // $locked_until::int,
         get_write_grant_id($human_id)
     );
 }
@@ -852,6 +861,14 @@ procedure credential_belongs_to_human($id uuid, $human_id uuid) private view ret
     return false;
 }
 
+procedure credential2_belongs_to_human($id uuid, $human_id uuid) private view returns (belongs bool) {
+    for $row in SELECT 1 from credentials2 WHERE id = $id AND human_id = $human_id LIMIT 1 {
+        return true;
+    }
+
+    return false;
+}
+
 procedure credential_belongs_to_caller($id uuid) private view returns (belongs bool) {
     for $row in SELECT 1 from credentials
         WHERE id = $id
@@ -872,6 +889,14 @@ procedure credential_exist($id uuid) private view returns (credential_exist bool
 
 procedure get_credential_inserter($id uuid) private view returns (inserter text) {
     for $row in SELECT inserter FROM credentials WHERE id = $id LIMIT 1 {
+        return $row.inserter;
+    }
+
+    error('credential not found');
+}
+
+procedure get_credential2_inserter($id uuid) private view returns (inserter text) {
+    for $row in SELECT inserter FROM credentials2 WHERE id = $id LIMIT 1 {
         return $row.inserter;
     }
 
