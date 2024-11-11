@@ -789,7 +789,7 @@ action share_credential_by_write_grant2(
         $human_id,
         $grantee,
         $id,
-        0, // TODO: creds2: why doesn't this work? // $locked_until::int,
+        $locked_until::int,
         get_write_grant_id($human_id)
     );
 }
