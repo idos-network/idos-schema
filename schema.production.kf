@@ -518,6 +518,25 @@ action edit_credential2(
     );
 }
 
+action edit_public_notes_as_issuer (
+  $public_notes_id
+, $public_notes
+) public {
+    $ids = idos.find_issuer_editable_credentials(@caller, $public_notes_id);
+    // TODO: creds2: revocations: How can I get an array from an extension, as opposed to this monkey casting?
+    select edit_public_notes_as_issuer_($public_notes, $ids);
+}
+
+procedure edit_public_notes_as_issuer_($public_notes text, $ids uuid[]) private returns (int){
+    for $id in $ids {
+        UPDATE credentials2
+        SET public_notes=$public_notes
+        WHERE issuer = @caller AND id = $id;
+    }
+
+    return 1;
+}
+
 procedure remove_credential($id uuid) public {
     if !credential_belongs_to_caller($id) {
         error('the credential does not belong to the caller');
