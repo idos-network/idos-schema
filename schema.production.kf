@@ -46,9 +46,7 @@ table credentials2 {
     id uuid primary,
     human_id uuid notnull,
     public_notes text notnull,
-    public_notes_signature text notnull,
     content text notnull,
-    broader_signature text notnull,
     encryption_public_key text notnull, // public key of encryptor
     issuer text notnull,
     inserter text,
@@ -356,10 +354,16 @@ action upsert_credential_as_inserter2(
     $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
     SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures: ' || $result) END;
 
-    INSERT INTO credentials2 (id, human_id, public_notes, public_notes_signature, content, broader_signature, encryption_public_key, issuer, inserter)
-    VALUES ($id, $human_id, $public_notes, $public_notes_signature, $content, $broader_signature, $encryption_public_key, $issuer, get_inserter())
+    INSERT INTO credentials2 (id, human_id, public_notes, content, encryption_public_key, issuer, inserter)
+    VALUES ($id, $human_id, $public_notes, $content, $encryption_public_key, $issuer, get_inserter())
     ON CONFLICT(id) DO UPDATE
-    SET human_id=$human_id, public_notes=$public_notes, public_notes_signature=$public_notes_signature, content=$content, broader_signature=$broader_signature, encryption_public_key=$encryption_public_key, issuer=$issuer, inserter=get_inserter();
+    SET human_id=$human_id
+      , public_notes=$public_notes
+      , content=$content
+      , encryption_public_key=$encryption_public_key
+      , issuer=$issuer
+      , inserter=get_inserter()
+    ;
 }
 
 procedure add_credential($id uuid, $credential_type text, $credential_level text, $credential_status text, $content text,
@@ -391,16 +395,14 @@ action add_credential2(
     $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
     SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
 
-    INSERT INTO credentials2 (id, human_id, public_notes, public_notes_signature, content, broader_signature, encryption_public_key, issuer)
+    INSERT INTO credentials2 (id, human_id, public_notes, content, encryption_public_key, issuer)
     VALUES (
         $id,
         (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)
         ),
         $public_notes,
-        $public_notes_signature,
         $content,
-        $broader_signature,
         $encryption_public_key,
         $issuer
     );
@@ -437,14 +439,12 @@ action add_credential_by_write_grant2(
     $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
     SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
 
-    INSERT INTO credentials2 (id, human_id, public_notes, public_notes_signature, content, broader_signature, encryption_public_key, issuer, inserter)
+    INSERT INTO credentials2 (id, human_id, public_notes, content, encryption_public_key, issuer, inserter)
     VALUES (
         $id,
         $human_id,
         $public_notes,
-        $public_notes_signature,
         $content,
-        $broader_signature,
         $encryption_public_key,
         $issuer,
         get_write_grant_id($human_id)::text
@@ -508,8 +508,10 @@ action edit_credential2(
     SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
 
     UPDATE credentials2
-    SET public_notes=$public_notes, public_notes_signature=$public_notes_signature, broader_signature=$broader_signature,
-        content=$content, encryption_public_key=$encryption_public_key, issuer=$issuer
+    SET public_notes=$public_notes
+      , content=$content
+      , encryption_public_key=$encryption_public_key
+      , issuer=$issuer
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller)
@@ -670,14 +672,12 @@ action share_credential_through_dag2 (
         error('the DAG is not signed by the human')
     END;
 
-    INSERT INTO credentials2 (id, human_id, public_notes, public_notes_signature, content, broader_signature, encryption_public_key, issuer, inserter)
+    INSERT INTO credentials2 (id, human_id, public_notes, content, encryption_public_key, issuer, inserter)
     VALUES (
         $id,
         $human_id,
         $public_notes,
-        $public_notes_signature,
         $content,
-        $broader_signature,
         $encryption_public_key,
         $issuer,
         get_inserter_or_null()
@@ -772,8 +772,8 @@ action share_credential_by_write_grant2(
     $result = idos.assert_credential_signatures($issuer, $public_notes, $public_notes_signature, $content, $broader_signature);
     SELECT CASE WHEN $result != 'ok' THEN error('assert_credential_signatures:' || $result) END;
 
-    INSERT INTO credentials2 ( id,  human_id,  public_notes,  public_notes_signature,  content,  broader_signature,  encryption_public_key,  issuer, inserter)
-                      VALUES ($id, $human_id, $public_notes, $public_notes_signature, $content, $broader_signature, $encryption_public_key, $issuer, get_write_grant_id($human_id)::text);
+    INSERT INTO credentials2 ( id,  human_id,  public_notes,  content,  encryption_public_key,  issuer, inserter)
+                      VALUES ($id, $human_id, $public_notes, $content, $encryption_public_key, $issuer, get_write_grant_id($human_id)::text);
 
     INSERT INTO shared_credentials2 (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 
