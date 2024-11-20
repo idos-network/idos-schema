@@ -314,15 +314,27 @@ action upsert_credential_as_inserter (
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
     SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures: ' || $result) END;
 
-    INSERT INTO credentials (id, human_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
-    VALUES ($id, $human_id, $public_notes, $content, $encryption_public_key, $issuer_auth_public_key, get_inserter())
+    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
+
+    INSERT INTO credentials (id, human_id, verifiable_credential_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
+    VALUES (
+        $id,
+        $human_id,
+        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
+        $public_notes,
+        $content,
+        $encryption_public_key,
+        $issuer_auth_public_key,
+        get_inserter()
+    )
     ON CONFLICT(id) DO UPDATE
     SET human_id=$human_id
-      , public_notes=$public_notes
-      , content=$content
-      , encryption_public_key=$encryption_public_key
-      , issuer_auth_public_key=$issuer_auth_public_key
-      , inserter=get_inserter()
+        , verifiable_credential_id=(CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END)
+        , public_notes=$public_notes
+        , content=$content
+        , encryption_public_key=$encryption_public_key
+        , issuer_auth_public_key=$issuer_auth_public_key
+        , inserter=get_inserter()
     ;
 }
 
@@ -338,12 +350,15 @@ action add_credential (
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
     SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
 
-    INSERT INTO credentials (id, human_id, public_notes, content, encryption_public_key, issuer_auth_public_key)
+    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
+
+    INSERT INTO credentials (id, human_id, verifiable_credential_id, public_notes, content, encryption_public_key, issuer_auth_public_key)
     VALUES (
         $id,
         (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)
         ),
+        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
         $public_notes,
         $content,
         $encryption_public_key,
@@ -366,10 +381,13 @@ action add_credential_by_write_grant (
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
     SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
 
-    INSERT INTO credentials (id, human_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
+    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
+
+    INSERT INTO credentials (id, human_id, verifiable_credential_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $id,
         $human_id,
+        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
         $public_notes,
         $content,
         $encryption_public_key,
@@ -413,11 +431,14 @@ action edit_credential (
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
     SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
 
+    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
+
     UPDATE credentials
     SET public_notes=$public_notes
-      , content=$content
-      , encryption_public_key=$encryption_public_key
-      , issuer_auth_public_key=$issuer_auth_public_key
+        , verifiable_credential_id = (CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END)
+        , content=$content
+        , encryption_public_key=$encryption_public_key
+        , issuer_auth_public_key=$issuer_auth_public_key
     WHERE id=$id
     AND human_id=(SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller)
@@ -427,26 +448,10 @@ action edit_credential (
 // Be aware that @caller here is ed25519 public key, hexcoded.
 // All other @caller in the schema are either secp256k1 or nep413
 // This action can't be called by kwil-cli (as kwil-cli uses secp256k1 only)
-action edit_public_notes_as_issuer (
-  $public_notes_id
-, $public_notes
-) public {
-    $ids = idos.find_issuer_editable_credentials(@caller, $public_notes_id);
-    // Ideally, when kuneiform supports `ANY`, we should start using that.
-    select edit_public_notes_as_issuer_($public_notes, $ids);
-}
-
-procedure edit_public_notes_as_issuer_ (
-  $public_notes text
-, $ids uuid[]
-) private returns (int) {
-    for $id in $ids {
-        UPDATE credentials
-        SET public_notes=$public_notes
-        WHERE issuer_auth_public_key = @caller AND id = $id;
-    }
-
-    return 1;
+procedure edit_public_notes_as_issuer($public_notes_id text, $public_notes text) public {
+    UPDATE credentials SET public_notes = $public_notes
+    WHERE issuer_auth_public_key = @caller
+        AND verifiable_credential_id = $public_notes_id;
 }
 
 procedure remove_credential($id uuid) public {
@@ -545,10 +550,13 @@ action share_credential_through_dag (
         error('the DAG is not signed by the human')
     END;
 
-    INSERT INTO credentials (id, human_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
+    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
+
+    INSERT INTO credentials (id, human_id, verifiable_credential_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $id,
         $human_id,
+        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
         $public_notes,
         $content,
         $encryption_public_key,
@@ -597,8 +605,19 @@ action share_credential_by_write_grant (
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
     SELECT CASE WHEN $result != 'ok' THEN error('assert_credential_signatures:' || $result) END;
 
-    INSERT INTO credentials  (id, human_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
-                      VALUES ($id, $human_id, $public_notes, $content, $encryption_public_key, $issuer_auth_public_key, get_write_grant_id($human_id)::text);
+    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
+
+    INSERT INTO credentials (id, human_id, verifiable_credential_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
+    VALUES (
+        $id,
+        $human_id,
+        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
+        $public_notes,
+        $content,
+        $encryption_public_key,
+        $issuer_auth_public_key,
+        get_write_grant_id($human_id)::text
+    );
 
     INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
 
@@ -728,6 +747,7 @@ procedure get_credential_inserter($id uuid) private view returns (inserter text)
 
     error('credential not found');
 }
+
 
 // ATTRUBITE ACTIONS
 
