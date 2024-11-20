@@ -637,6 +637,7 @@ action get_credential_owned ($id) public view {
     );
 }
 
+// As a credential copy doesn't contain public notes, we return respective original credential public notes
 @kgw(authn='true')
 procedure get_credential_shared (
   $id uuid
@@ -680,17 +681,17 @@ procedure get_credential_shared (
         }
     }
 
-    // TODO: creds2: publicNotes are going to be empty on the copies. We need to start doing joins to get
-    // that field from the original credential.
-    return SELECT id
-    , human_id
-    , public_notes
-    , content
-    , encryption_public_key
-    , issuer_auth_public_key
-    , inserter
-    FROM credentials
-    WHERE id = $id;
+    return SELECT c.id
+    , c.human_id
+    , oc.public_notes
+    , c.content
+    , c.encryption_public_key
+    , c.issuer_auth_public_key
+    , c.inserter
+    FROM credentials AS c
+    LEFT JOIN shared_credentials ON c.id = shared_credentials.duplicate_id
+    LEFT JOIN credentials as oc ON shared_credentials.original_id = oc.id
+    WHERE c.id = $id;
 }
 
 procedure credential_belongs_to_human($id uuid, $human_id uuid) private view returns (belongs bool) {
