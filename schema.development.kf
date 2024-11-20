@@ -31,13 +31,14 @@ table wallets {
 table credentials {
     id uuid primary,
     human_id uuid notnull,
+    verifiable_credential_id text,
     public_notes text notnull,
     content text notnull,
     encryption_public_key text notnull, // public key of encryptor
     issuer_auth_public_key text notnull,
     inserter text,
     #credentials_human_id index(human_id),
-    #credentials_issuer_pk index(issuer_auth_public_key),
+    #credentials_vc_id index(verifiable_credential_id),
     foreign_key (human_id) references humans(id) on_delete cascade
 }
 
@@ -964,14 +965,15 @@ procedure insert_wallet_as_owner($id uuid, $human_id uuid, $address text, $publi
 procedure insert_credential_as_owner (
   $id uuid
 , $human_id uuid
+, $verifiable_credential_id text
 , $public_notes text
 , $content text
 , $encryption_public_key text
 , $issuer_auth_public_key text
 , $inserter text
 ) owner public {
-    INSERT INTO credentials (id, human_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
-    VALUES ($id, $human_id, $public_notes, $content, $encryption_public_key, $issuer_auth_public_key, $inserter);
+    INSERT INTO credentials (id, human_id, verifiable_credential_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
+    VALUES ($id, $human_id, $verifiable_credential_id, $public_notes, $content, $encryption_public_key, $issuer_auth_public_key, $inserter);
 }
 
 procedure insert_shared_cred_as_owner($original_id uuid, $duplicate_id uuid) owner public {
@@ -1048,18 +1050,20 @@ procedure migrate_wallets($dbid text) public owner {
 procedure all_credentials_as_owner () public view owner returns table (
   id uuid
 , human_id uuid
+, verifiable_credential_id text
 , public_notes text
 , content text
 , encryption_public_key text
 , issuer_auth_public_key text
 , inserter text
 ) {
-    return SELECT id, human_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter FROM credentials;
+    return SELECT id, human_id, verifiable_credential_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter FROM credentials;
 }
 
 foreign procedure get_all_credentials() returns table (
   id uuid
 , human_id uuid
+, verifiable_credential_id text
 , public_notes text
 , content text
 , encryption_public_key text
@@ -1068,9 +1072,9 @@ foreign procedure get_all_credentials() returns table (
 )
 
 procedure migrate_credentials($dbid text) public owner {
-    for $row in SELECT id, human_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter FROM get_all_credentials[$dbid, 'all_credentials_as_owner']() {
-        INSERT INTO credentials (id, human_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
-        VALUES ($row.id, $row.human_id, $row.public_notes, $row.content, $row.encryption_public_key, $row.issuer_auth_public_key, $row.inserter);
+    for $row in SELECT id, human_id, verifiable_credential_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter FROM get_all_credentials[$dbid, 'all_credentials_as_owner']() {
+        INSERT INTO credentials (id, human_id, verifiable_credential_id, public_notes, content, encryption_public_key, issuer_auth_public_key, inserter)
+        VALUES ($row.id, $row.human_id, $row.verifiable_credential_id, $row.public_notes, $row.content, $row.encryption_public_key, $row.issuer_auth_public_key, $row.inserter);
     }
 }
 
