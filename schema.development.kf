@@ -894,6 +894,25 @@ procedure get_write_grant_id($human_id uuid) private view returns (id uuid) {
     error('there is no write grant found');
 }
 
+procedure has_write_grant_given_to($grantee text) public view returns (has_given bool) {
+    for $row in SELECT 1 FROM write_grants
+        WHERE wg_grantee = $grantee COLLATE NOCASE
+        AND wg_owner_human_id = (SELECT DISTINCT human_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)) {
+            return true;
+        }
+    return false;
+}
+
+procedure has_write_grant_given_by($human_id uuid) public view returns (has_given bool) {
+    for $row in SELECT 1 FROM write_grants
+        WHERE wg_owner_human_id = $human_id
+        AND wg_grantee = @caller COLLATE NOCASE {
+            return true;
+        }
+    return false;
+}
+
 
 // INTERNAL ACCESS GRANTS ACTIONS
 
