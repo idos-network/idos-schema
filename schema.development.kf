@@ -195,15 +195,6 @@ procedure delete_human_as_owner($id uuid) public owner {
     DELETE FROM humans WHERE id=$id;
 }
 
-// TODO: delete this after idos-sdk starts using get_human action
-// DEPRECATED
-@kgw(authn='true')
-action get_wallet_human_id() public view {
-    SELECT DISTINCT human_id FROM wallets
-    WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-        OR (wallet_type = 'NEAR' AND public_key = @caller);
-}
-
 // TODO: change to procedure
 @kgw(authn='true')
 action get_human() public view {
