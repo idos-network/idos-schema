@@ -102,7 +102,8 @@ table write_grants {
     wg_owner text notnull, // human wallet/pk
     wg_grantee text notnull, // issuer wallet/pk
     wg_owner_human_id uuid notnull, // human's id, to be sure we will find the human if the owner's wallet will be deleted
-    #write_grants_human_id_grantee unique(wg_owner_human_id, wg_grantee)
+    #write_grants_human_id_grantee unique(wg_owner_human_id, wg_grantee),
+    foreign_key (wg_owner_human_id) references humans(id) on_delete cascade
 }
 
 // internal access grants can be granted if such permission is in write_grants
@@ -114,6 +115,7 @@ table internal_access_grants {
     locked_until int notnull default(0),
     write_grant_id uuid, // This should be notnull, but we do set it to null in the FK.
     foreign_key (write_grant_id) references write_grants(id) on_delete set null,
+    foreign_key (ag_owner_human_id) references humans(id) on_delete cascade,
     #iag_data_id index(data_id),
     #iag_ag_grantee index(ag_grantee),
     #iag_ag_owner_human_id index(ag_owner_human_id)
