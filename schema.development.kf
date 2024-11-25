@@ -640,10 +640,10 @@ procedure credential_exist_as_inserter($id uuid) public view returns (credential
 // TODO: change to procedure
 @kgw(authn='true')
 action get_credential_owned ($id) public view {
-    SELECT DISTINCT credentials.*
-    FROM credentials
-    INNER JOIN wallets ON credentials.human_id = wallets.human_id
-    WHERE credentials.id = $id
+    SELECT DISTINCT c.id, c.human_id, c.public_notes, c.content, c.encryption_public_key, c.issuer_auth_public_key, c.inserter
+    FROM credentials AS c
+    INNER JOIN wallets ON c.human_id = wallets.human_id
+    WHERE c.id = $id
     AND (
         (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
             OR (wallets.wallet_type = 'NEAR' AND wallets.public_key = @caller)
