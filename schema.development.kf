@@ -178,7 +178,7 @@ procedure get_inserter_or_null() private view returns (name text) {
     return null;
 }
 
-// HUMAN ACTIONS
+// USER ACTIONS
 
 procedure add_user_as_inserter($id uuid, $current_user_enc_public_key text) public {
     INSERT INTO users (id, current_user_enc_public_key, inserter) VALUES ($id, $current_user_enc_public_key, get_inserter());
