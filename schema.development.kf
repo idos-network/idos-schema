@@ -100,7 +100,7 @@ table external_access_grants {
 // A user gives a grant to write data (create a credential, share the credential) on his behalf to some issuer
 table write_grants {
     id uuid primary,
-    wg_owner text notnull, // user wallet/pk
+    wg_owner_wallet_identifier text notnull, // user wallet/pk
     wg_grantee text notnull, // issuer wallet/pk
     wg_owner_user_id uuid notnull, // user's id, to be sure we will find the user if the owner's wallet will be deleted
     #write_grants_user_id_grantee unique(wg_owner_user_id, wg_grantee),
@@ -859,7 +859,7 @@ procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id u
 // WRITE GRANTS ACTIONS
 
 procedure add_write_grant($wg_grantee text) public {
-    INSERT INTO write_grants (id, wg_owner, wg_grantee, wg_owner_user_id) VALUES (
+    INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee, wg_owner_user_id) VALUES (
         uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s', @caller, $wg_grantee)),
         @caller,
         $wg_grantee,
@@ -1046,9 +1046,9 @@ procedure insert_internal_ags_as_owner($id uuid, $ag_owner_user_id uuid, $ag_gra
     VALUES ($id, $ag_owner_user_id, $ag_grantee, $data_id, $locked_until, $write_grant_id);
 }
 
-procedure insert_write_grants_as_owner($id uuid, $wg_owner text, $wg_grantee text, $wg_owner_user_id uuid) owner public {
-    INSERT INTO write_grants (id, wg_owner, wg_grantee, wg_owner_user_id)
-    VALUES ($id, $wg_owner, $wg_grantee, $wg_owner_user_id);
+procedure insert_write_grants_as_owner($id uuid, $wg_owner_wallet_identifier text, $wg_grantee text, $wg_owner_user_id uuid) owner public {
+    INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee, wg_owner_user_id)
+    VALUES ($id, $wg_owner_wallet_identifier, $wg_grantee, $wg_owner_user_id);
 }
 
 
@@ -1216,17 +1216,17 @@ procedure migrate_internal_grants($dbid text) public owner {
 }
 
 
-procedure all_write_grants_as_owner() public view owner returns table (id uuid, wg_owner text, wg_grantee text,
+procedure all_write_grants_as_owner() public view owner returns table (id uuid, wg_owner_wallet_identifier text, wg_grantee text,
     wg_owner_user_id uuid) {
-    return SELECT id, wg_owner, wg_grantee, wg_owner_user_id FROM write_grants;
+    return SELECT id, wg_owner_wallet_identifier, wg_grantee, wg_owner_user_id FROM write_grants;
 }
 
-foreign procedure get_all_write_grants() returns table (id uuid, wg_owner text, wg_grantee text, wg_owner_user_id uuid)
+foreign procedure get_all_write_grants() returns table (id uuid, wg_owner_wallet_identifier text, wg_grantee text, wg_owner_user_id uuid)
 
 procedure migrate_write_grants($dbid text) public owner {
-    for $row in SELECT id, wg_owner, wg_grantee, wg_owner_user_id FROM get_all_write_grants[$dbid, 'all_write_grants_as_owner']() {
-        INSERT INTO write_grants (id, wg_owner, wg_grantee, wg_owner_user_id)
-            VALUES ($row.id, $row.wg_owner, $row.wg_grantee, $row.wg_owner_user_id);
+    for $row in SELECT id, wg_owner_wallet_identifier, wg_grantee, wg_owner_user_id FROM get_all_write_grants[$dbid, 'all_write_grants_as_owner']() {
+        INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee, wg_owner_user_id)
+            VALUES ($row.id, $row.wg_owner_wallet_identifier, $row.wg_grantee, $row.wg_owner_user_id);
     }
 }
 
