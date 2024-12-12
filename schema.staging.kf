@@ -44,11 +44,11 @@ table credentials {
 
 table shared_credentials {
     original_id uuid notnull,
-    duplicate_id uuid notnull,
-    #primary_key primary(original_id, duplicate_id),
-    #shared_credentials_duplicate_id index(duplicate_id),
+    copy_id uuid notnull,
+    #primary_key primary(original_id, copy_id),
+    #shared_credentials_copy_id index(copy_id),
     foreign_key (original_id) references credentials(id) on_delete cascade,
-    foreign_key (duplicate_id) references credentials(id) on_delete cascade
+    foreign_key (copy_id) references credentials(id) on_delete cascade
 }
 
 table user_attributes {
@@ -63,10 +63,11 @@ table user_attributes {
 
 table shared_user_attributes {
     original_id uuid notnull,
-    duplicate_id uuid notnull,
-    #primary_key primary(original_id, duplicate_id),
+    copy_id uuid notnull,
+    #primary_key primary(original_id, copy_id),
+    #shared_user_attributes_copy_id index(copy_id),
     foreign_key (original_id) references user_attributes(id) on_delete cascade,
-    foreign_key (duplicate_id) references user_attributes(id) on_delete cascade
+    foreign_key (copy_id) references user_attributes(id) on_delete cascade
 }
 
 table inserters {
@@ -99,10 +100,10 @@ table external_access_grants {
 // A user gives a grant to write data (create a credential, share the credential) on his behalf to some issuer
 table write_grants {
     id uuid primary,
-    wg_owner text notnull, // user wallet/pk
-    wg_grantee text notnull, // issuer wallet/pk
+    wg_owner_wallet_identifier text notnull, // user wallet/pk
+    wg_grantee_wallet_identifier text notnull, // issuer wallet/pk
     wg_owner_user_id uuid notnull, // user's id, to be sure we will find the user if the owner's wallet will be deleted
-    #write_grants_user_id_grantee unique(wg_owner_user_id, wg_grantee),
+    #write_grants_user_id_grantee unique(wg_owner_user_id, wg_grantee_wallet_identifier),
     foreign_key (wg_owner_user_id) references users(id) on_delete cascade
 }
 
@@ -110,14 +111,14 @@ table write_grants {
 table internal_access_grants {
     id uuid primary,
     ag_owner_user_id uuid notnull,
-    ag_grantee text notnull,
+    ag_grantee_wallet_identifier text notnull,
     data_id uuid notnull,
     locked_until int notnull default(0),
     write_grant_id uuid, // This should be notnull, but we do set it to null in the FK.
     foreign_key (write_grant_id) references write_grants(id) on_delete set null,
     foreign_key (ag_owner_user_id) references users(id) on_delete cascade,
     #iag_data_id index(data_id),
-    #iag_ag_grantee index(ag_grantee),
+    #iag_ag_grantee_wallet_identifier index(ag_grantee_wallet_identifier),
     #iag_ag_owner_user_id index(ag_owner_user_id)
 }
 
@@ -393,7 +394,7 @@ action add_credential_by_write_grant (
 action get_credentials() public view {
     SELECT DISTINCT c.id, c.user_id, c.public_notes, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
     FROM credentials AS c
-    LEFT JOIN shared_credentials AS sc ON c.id = sc.duplicate_id
+    LEFT JOIN shared_credentials AS sc ON c.id = sc.copy_id
     INNER JOIN wallets ON c.user_id = wallets.user_id
     WHERE (
         wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
@@ -414,7 +415,7 @@ action edit_credential (
     SELECT CASE
         WHEN EXISTS (
             SELECT 1 from credentials AS c
-                INNER JOIN shared_credentials AS sc on c.id = sc.duplicate_id
+                INNER JOIN shared_credentials AS sc on c.id = sc.copy_id
                 WHERE c.id = $id
                 AND c.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                     OR (wallet_type = 'NEAR' AND public_key = @caller))
@@ -491,7 +492,7 @@ action share_credential (
       , $public_notes_signature
       , $broader_signature
     );
-    INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 }
 
 // It can be used with EVM-compatible signatures only
@@ -557,7 +558,7 @@ action share_credential_through_dag (
         get_inserter_or_null()
     );
 
-    INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 }
 
 action share_credential_by_write_grant (
@@ -569,7 +570,7 @@ action share_credential_by_write_grant (
 , $public_notes_signature
 , $broader_signature
 , $original_credential_id
-, $grantee
+, $grantee_wallet_identifier
 , $locked_until
 , $issuer_auth_public_key
 ) public {
@@ -587,7 +588,7 @@ action share_credential_by_write_grant (
         error('you can share only original credentials you created')
     END;
 
-    SELECT CASE WHEN (SELECT count(1) FROM internal_access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee::text, $original_credential_id::text, $locked_until::text))) > 0 THEN
+    SELECT CASE WHEN (SELECT count(1) FROM internal_access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $original_credential_id::text, $locked_until::text))) > 0 THEN
         error('a grant with the same grantee, original_credential_id, and locked_until already exists')
     END;
 
@@ -612,19 +613,19 @@ action share_credential_by_write_grant (
         get_write_grant_id($user_id)::text
     );
 
-    INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
     INSERT INTO internal_access_grants (
         id,
         ag_owner_user_id,
-        ag_grantee,
+        ag_grantee_wallet_identifier,
         data_id,
         locked_until,
         write_grant_id
     ) VALUES (
-        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee::text, $original_credential_id::text, $locked_until::text)),
+        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $original_credential_id::text, $locked_until::text)),
         $user_id,
-        $grantee,
+        $grantee_wallet_identifier,
         $id,
         $locked_until::int,
         get_write_grant_id($user_id)
@@ -677,7 +678,7 @@ procedure get_credential_shared ($id uuid) public view returns table (
         }
     }
 
-    for $int_ag_row in SELECT 1 FROM internal_access_grants WHERE data_id = $id AND ag_grantee = @caller COLLATE NOCASE {
+    for $int_ag_row in SELECT 1 FROM internal_access_grants WHERE data_id = $id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
         $int_ag_granted := true;
     }
 
@@ -700,7 +701,7 @@ procedure get_credential_shared ($id uuid) public view returns table (
     , c.issuer_auth_public_key
     , c.inserter
     FROM credentials AS c
-    LEFT JOIN shared_credentials ON c.id = shared_credentials.duplicate_id
+    LEFT JOIN shared_credentials ON c.id = shared_credentials.copy_id
     LEFT JOIN credentials as oc ON shared_credentials.original_id = oc.id
     WHERE c.id = $id;
 }
@@ -764,7 +765,7 @@ procedure add_attribute($id uuid, $attribute_key text, $value text) public {
 action get_attributes() public view {
     SELECT DISTINCT ha.id, ha.user_id, ha.attribute_key, ha.value, sha.original_id AS original_id
     FROM user_attributes AS ha
-    LEFT JOIN shared_user_attributes AS sha ON ha.id = sha.duplicate_id
+    LEFT JOIN shared_user_attributes AS sha ON ha.id = sha.copy_id
     INNER JOIN wallets ON ha.user_id = wallets.user_id
     WHERE (
         wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
@@ -778,7 +779,7 @@ action edit_attribute($id, $attribute_key, $value) public {
     SELECT CASE
         WHEN EXISTS (
             SELECT 1 from user_attributes AS ha
-                INNER JOIN shared_user_attributes AS sha on ha.id = sha.duplicate_id
+                INNER JOIN shared_user_attributes AS sha on ha.id = sha.copy_id
                 WHERE ha.id = $id
                 AND ha.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                     OR (wallet_type = 'NEAR' AND public_key = @caller))
@@ -811,7 +812,7 @@ procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key 
         $value
     );
 
-    INSERT INTO shared_user_attributes (original_id, duplicate_id)
+    INSERT INTO shared_user_attributes (original_id, copy_id)
     VALUES ($original_attribute_id, $id);
 }
 
@@ -835,7 +836,7 @@ procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id u
     }
 
     $data_id_is_duplicate := false;
-    for $row in SELECT 1 FROM shared_credentials WHERE duplicate_id = $data_id LIMIT 1 {
+    for $row in SELECT 1 FROM shared_credentials WHERE copy_id = $data_id LIMIT 1 {
         $data_id_is_duplicate := true;
     }
     if !$data_id_is_duplicate {
@@ -857,26 +858,26 @@ procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id u
 
 // WRITE GRANTS ACTIONS
 
-procedure add_write_grant($wg_grantee text) public {
-    INSERT INTO write_grants (id, wg_owner, wg_grantee, wg_owner_user_id) VALUES (
-        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s', @caller, $wg_grantee)),
+procedure add_write_grant($wg_grantee_wallet_identifier text) public {
+    INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id) VALUES (
+        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s', @caller, $wg_grantee_wallet_identifier)),
         @caller,
-        $wg_grantee,
+        $wg_grantee_wallet_identifier,
         (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)
         )
     );
 }
 
-procedure remove_write_grant($wg_grantee text) public {
+procedure remove_write_grant($wg_grantee_wallet_identifier text) public {
     DELETE FROM write_grants
-        WHERE wg_grantee = $wg_grantee COLLATE NOCASE
+        WHERE wg_grantee_wallet_identifier = $wg_grantee_wallet_identifier COLLATE NOCASE
         AND wg_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller));
 }
 
 procedure get_write_grant_id($user_id uuid) private view returns (id uuid) {
-    for $row in SELECT id FROM write_grants WHERE wg_owner_user_id = $user_id AND wg_grantee = @caller COLLATE NOCASE LIMIT 1 {
+    for $row in SELECT id FROM write_grants WHERE wg_owner_user_id = $user_id AND wg_grantee_wallet_identifier = @caller COLLATE NOCASE LIMIT 1 {
         return $row.id;
     }
 
@@ -884,9 +885,9 @@ procedure get_write_grant_id($user_id uuid) private view returns (id uuid) {
 }
 
 @kgw(authn='true')
-procedure has_write_grant_given_to($grantee text) public view returns (has_given bool) {
+procedure has_write_grant_given_to($wg_grantee_wallet_identifier text) public view returns (has_given bool) {
     for $row in SELECT 1 FROM write_grants
-        WHERE wg_grantee = $grantee COLLATE NOCASE
+        WHERE wg_grantee_wallet_identifier = $wg_grantee_wallet_identifier COLLATE NOCASE
         AND wg_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)) {
             return true;
@@ -898,7 +899,7 @@ procedure has_write_grant_given_to($grantee text) public view returns (has_given
 procedure has_write_grant_given_by($user_id uuid) public view returns (has_given bool) {
     for $row in SELECT 1 FROM write_grants
         WHERE wg_owner_user_id = $user_id
-        AND wg_grantee = @caller COLLATE NOCASE {
+        AND wg_grantee_wallet_identifier = @caller COLLATE NOCASE {
             return true;
         }
     return false;
@@ -934,17 +935,17 @@ procedure revoke_internal_access_grant ($id uuid) public {
 
 @kgw(authn='true')
 procedure get_internal_ag_owned () public view returns table (id uuid, ag_owner_user_id uuid,
-    ag_grantee text, data_id uuid, locked_until int, write_grant_id uuid) {
-    return SELECT id, ag_owner_user_id, ag_grantee, data_id, locked_until, write_grant_id FROM internal_access_grants
+    ag_grantee_wallet_identifier text, data_id uuid, locked_until int, write_grant_id uuid) {
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, write_grant_id FROM internal_access_grants
         WHERE ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller));
 }
 
 @kgw(authn='true')
 procedure get_internal_ag_granted () public view returns table (id uuid, ag_owner_user_id uuid,
-    ag_grantee text, data_id uuid, locked_until int) {
-    return SELECT id, ag_owner_user_id, ag_grantee, data_id, locked_until FROM internal_access_grants
-        WHERE ag_grantee =  @caller;
+    ag_grantee_wallet_identifier text, data_id uuid, locked_until int) {
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until FROM internal_access_grants
+        WHERE ag_grantee_wallet_identifier =  @caller;
 }
 
 
@@ -1010,9 +1011,9 @@ procedure insert_credential_as_owner (
     VALUES ($id, $user_id, $verifiable_credential_id, $public_notes, $content, $encryptor_public_key, $issuer_auth_public_key, $inserter);
 }
 
-procedure insert_shared_cred_as_owner($original_id uuid, $duplicate_id uuid) owner public {
-    INSERT INTO shared_credentials (original_id, duplicate_id)
-    VALUES ($original_id, $duplicate_id);
+procedure insert_shared_cred_as_owner($original_id uuid, $copy_id uuid) owner public {
+    INSERT INTO shared_credentials (original_id, copy_id)
+    VALUES ($original_id, $copy_id);
 }
 
 procedure insert_user_attribute_as_owner($id uuid, $user_id uuid, $attribute_key text, $value text, $inserter text) owner public {
@@ -1020,9 +1021,9 @@ procedure insert_user_attribute_as_owner($id uuid, $user_id uuid, $attribute_key
     VALUES ($id, $user_id, $attribute_key, $value, $inserter);
 }
 
-procedure insert_shared_attr_as_owner($original_id uuid, $duplicate_id uuid) owner public {
-    INSERT INTO shared_user_attributes (original_id, duplicate_id)
-    VALUES ($original_id, $duplicate_id);
+procedure insert_shared_attr_as_owner($original_id uuid, $copy_id uuid) owner public {
+    INSERT INTO shared_user_attributes (original_id, copy_id)
+    VALUES ($original_id, $copy_id);
 }
 
 // Some entities no need special actions because main actions do the same
@@ -1039,15 +1040,15 @@ procedure insert_external_ags_as_owner($id uuid, $ag_owner text, $ag_grantee tex
         $tx_hash, $block_hash, $height, $status);
 }
 
-procedure insert_internal_ags_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee text, $data_id uuid,
+procedure insert_internal_ags_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee_wallet_identifier text, $data_id uuid,
     $locked_until int, $write_grant_id uuid) owner public {
-    INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee, data_id, locked_until, write_grant_id)
-    VALUES ($id, $ag_owner_user_id, $ag_grantee, $data_id, $locked_until, $write_grant_id);
+    INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, write_grant_id)
+    VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $write_grant_id);
 }
 
-procedure insert_write_grants_as_owner($id uuid, $wg_owner text, $wg_grantee text, $wg_owner_user_id uuid) owner public {
-    INSERT INTO write_grants (id, wg_owner, wg_grantee, wg_owner_user_id)
-    VALUES ($id, $wg_owner, $wg_grantee, $wg_owner_user_id);
+procedure insert_write_grants_as_owner($id uuid, $wg_owner_wallet_identifier text, $wg_grantee_wallet_identifier text, $wg_owner_user_id uuid) owner public {
+    INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id)
+    VALUES ($id, $wg_owner_wallet_identifier, $wg_grantee_wallet_identifier, $wg_owner_user_id);
 }
 
 
@@ -1113,15 +1114,15 @@ procedure migrate_credentials($dbid text) public owner {
 }
 
 
-procedure all_shared_credentials_as_owner() public view owner returns table (original_id uuid, duplicate_id uuid) {
-    return SELECT original_id, duplicate_id FROM shared_credentials;
+procedure all_shared_credentials_as_owner() public view owner returns table (original_id uuid, copy_id uuid) {
+    return SELECT original_id, copy_id FROM shared_credentials;
 }
 
-foreign procedure get_all_shared_credentials() returns table (original_id uuid, duplicate_id uuid)
+foreign procedure get_all_shared_credentials() returns table (original_id uuid, copy_id uuid)
 
 procedure migrate_shared_credentials($dbid text) public owner {
-    for $row in SELECT original_id, duplicate_id FROM get_all_shared_credentials[$dbid, 'all_shared_credentials_as_owner']() {
-        INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($row.original_id, $row.duplicate_id);
+    for $row in SELECT original_id, copy_id FROM get_all_shared_credentials[$dbid, 'all_shared_credentials_as_owner']() {
+        INSERT INTO shared_credentials (original_id, copy_id) VALUES ($row.original_id, $row.copy_id);
     }
 }
 
@@ -1141,15 +1142,15 @@ procedure migrate_user_attributes($dbid text) public owner {
 }
 
 
-procedure all_shared_user_attrs_as_owner() public view owner returns table (original_id uuid, duplicate_id uuid) {
-    return SELECT original_id, duplicate_id FROM shared_user_attributes;
+procedure all_shared_user_attrs_as_owner() public view owner returns table (original_id uuid, copy_id uuid) {
+    return SELECT original_id, copy_id FROM shared_user_attributes;
 }
 
-foreign procedure get_all_shared_user_attrs() returns table (original_id uuid, duplicate_id uuid)
+foreign procedure get_all_shared_user_attrs() returns table (original_id uuid, copy_id uuid)
 
 procedure migrate_shared_user_attrs($dbid text) public owner {
-    for $row in SELECT original_id, duplicate_id FROM get_all_shared_user_attrs[$dbid, 'all_shared_user_attrs_as_owner']() {
-        INSERT INTO shared_user_attributes (original_id, duplicate_id) VALUES ($row.original_id, $row.duplicate_id);
+    for $row in SELECT original_id, copy_id FROM get_all_shared_user_attrs[$dbid, 'all_shared_user_attrs_as_owner']() {
+        INSERT INTO shared_user_attributes (original_id, copy_id) VALUES ($row.original_id, $row.copy_id);
     }
 }
 
@@ -1198,34 +1199,34 @@ procedure migrate_external_grants($dbid text) public owner {
 }
 
 
-procedure all_internal_grants_as_owner() public view owner returns table (id uuid, ag_owner_user_id uuid, ag_grantee text,
+procedure all_internal_grants_as_owner() public view owner returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
     data_id uuid, locked_until int, write_grant_id uuid) {
-    return SELECT id, ag_owner_user_id, ag_grantee, data_id, locked_until, write_grant_id FROM internal_access_grants;
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, write_grant_id FROM internal_access_grants;
 }
 
-foreign procedure get_all_internal_grants() returns table (id uuid, ag_owner_user_id uuid, ag_grantee text,
+foreign procedure get_all_internal_grants() returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
     data_id uuid, locked_until int, write_grant_id uuid)
 
 procedure migrate_internal_grants($dbid text) public owner {
-    for $row in SELECT id, ag_owner_user_id, ag_grantee, data_id, locked_until, write_grant_id
+    for $row in SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, write_grant_id
         FROM get_all_internal_grants[$dbid, 'all_internal_grants_as_owner']() {
-        INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee, data_id, locked_until, write_grant_id)
-            VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee, $row.data_id, $row.locked_until, $row.write_grant_id);
+        INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, write_grant_id)
+            VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.write_grant_id);
     }
 }
 
 
-procedure all_write_grants_as_owner() public view owner returns table (id uuid, wg_owner text, wg_grantee text,
+procedure all_write_grants_as_owner() public view owner returns table (id uuid, wg_owner_wallet_identifier text, wg_grantee_wallet_identifier text,
     wg_owner_user_id uuid) {
-    return SELECT id, wg_owner, wg_grantee, wg_owner_user_id FROM write_grants;
+    return SELECT id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id FROM write_grants;
 }
 
-foreign procedure get_all_write_grants() returns table (id uuid, wg_owner text, wg_grantee text, wg_owner_user_id uuid)
+foreign procedure get_all_write_grants() returns table (id uuid, wg_owner_wallet_identifier text, wg_grantee_wallet_identifier text, wg_owner_user_id uuid)
 
 procedure migrate_write_grants($dbid text) public owner {
-    for $row in SELECT id, wg_owner, wg_grantee, wg_owner_user_id FROM get_all_write_grants[$dbid, 'all_write_grants_as_owner']() {
-        INSERT INTO write_grants (id, wg_owner, wg_grantee, wg_owner_user_id)
-            VALUES ($row.id, $row.wg_owner, $row.wg_grantee, $row.wg_owner_user_id);
+    for $row in SELECT id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id FROM get_all_write_grants[$dbid, 'all_write_grants_as_owner']() {
+        INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id)
+            VALUES ($row.id, $row.wg_owner_wallet_identifier, $row.wg_grantee_wallet_identifier, $row.wg_owner_user_id);
     }
 }
 
