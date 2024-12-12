@@ -9,7 +9,7 @@ use idos as idos;
 
 table users {
     id uuid primary,
-    current_user_enc_public_key text notnull,
+    recipient_encryption_public_key text notnull,
     inserter text notnull
 }
 
@@ -180,13 +180,13 @@ procedure get_inserter_or_null() private view returns (name text) {
 
 // USER ACTIONS
 
-procedure add_user_as_inserter($id uuid, $current_user_enc_public_key text) public {
-    INSERT INTO users (id, current_user_enc_public_key, inserter) VALUES ($id, $current_user_enc_public_key, get_inserter());
+procedure add_user_as_inserter($id uuid, $recipient_encryption_public_key text) public {
+    INSERT INTO users (id, recipient_encryption_public_key, inserter) VALUES ($id, $recipient_encryption_public_key, get_inserter());
 }
 
-procedure update_user_pub_key_as_inserter($id uuid, $current_user_enc_public_key text) public {
+procedure update_user_pub_key_as_inserter($id uuid, $recipient_encryption_public_key text) public {
     get_inserter();
-    UPDATE users SET current_user_enc_public_key=$current_user_enc_public_key
+    UPDATE users SET recipient_encryption_public_key=$recipient_encryption_public_key
         WHERE id = $id;
 }
 
@@ -198,16 +198,16 @@ procedure delete_user_as_owner($id uuid) public owner {
 // TODO: change to procedure
 @kgw(authn='true')
 action get_user() public view {
-    SELECT id, current_user_enc_public_key FROM users
+    SELECT id, recipient_encryption_public_key FROM users
     WHERE id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller));
 }
 
 @kgw(authn='true')
-procedure get_user_as_inserter($id uuid) public view returns (id uuid, current_user_enc_public_key text, inserter text) {
+procedure get_user_as_inserter($id uuid) public view returns (id uuid, recipient_encryption_public_key text, inserter text) {
     get_inserter();
     for $row in SELECT * FROM users WHERE id = $id {
-        return $row.id, $row.current_user_enc_public_key, $row.inserter;
+        return $row.id, $row.recipient_encryption_public_key, $row.inserter;
     }
 }
 
@@ -985,9 +985,9 @@ action has_profile($address) public view {
 
 // OWNER ACTIONS FOR MANUAL MIGRATIONS
 
-procedure insert_user_as_owner($id uuid, $current_user_enc_public_key text, $inserter text) owner public {
-    INSERT INTO users (id, current_user_enc_public_key, inserter)
-    VALUES ($id, $current_user_enc_public_key, $inserter);
+procedure insert_user_as_owner($id uuid, $recipient_encryption_public_key text, $inserter text) owner public {
+    INSERT INTO users (id, recipient_encryption_public_key, inserter)
+    VALUES ($id, $recipient_encryption_public_key, $inserter);
 }
 
 procedure insert_wallet_as_owner($id uuid, $user_id uuid, $address text, $public_key text, $wallet_type text,
@@ -1053,15 +1053,15 @@ procedure insert_write_grants_as_owner($id uuid, $wg_owner text, $wg_grantee tex
 
 // ACTIONS FOR IN-SCHEMA DATA MIGRATION (OWNER)
 
-procedure all_users_as_owner() public view owner returns table (id uuid, current_user_enc_public_key text, inserter text) {
-    return SELECT id, current_user_enc_public_key, inserter FROM users;
+procedure all_users_as_owner() public view owner returns table (id uuid, recipient_encryption_public_key text, inserter text) {
+    return SELECT id, recipient_encryption_public_key, inserter FROM users;
 }
 
-foreign procedure get_all_users() returns table(id uuid, current_user_enc_public_key text, inserter text)
+foreign procedure get_all_users() returns table(id uuid, recipient_encryption_public_key text, inserter text)
 
 procedure migrate_users($dbid text) public owner {
-    for $row in SELECT id, current_user_enc_public_key, inserter FROM get_all_users[$dbid, 'all_users_as_owner']() {
-        INSERT INTO users (id, current_user_enc_public_key, inserter) VALUES ($row.id, $row.current_user_enc_public_key, $row.inserter);
+    for $row in SELECT id, recipient_encryption_public_key, inserter FROM get_all_users[$dbid, 'all_users_as_owner']() {
+        INSERT INTO users (id, recipient_encryption_public_key, inserter) VALUES ($row.id, $row.recipient_encryption_public_key, $row.inserter);
     }
 }
 
