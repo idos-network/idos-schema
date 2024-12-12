@@ -44,11 +44,11 @@ table credentials {
 
 table shared_credentials {
     original_id uuid notnull,
-    duplicate_id uuid notnull,
-    #primary_key primary(original_id, duplicate_id),
-    #shared_credentials_duplicate_id index(duplicate_id),
+    copy_id uuid notnull,
+    #primary_key primary(original_id, copy_id),
+    #shared_credentials_copy_id index(copy_id),
     foreign_key (original_id) references credentials(id) on_delete cascade,
-    foreign_key (duplicate_id) references credentials(id) on_delete cascade
+    foreign_key (copy_id) references credentials(id) on_delete cascade
 }
 
 table user_attributes {
@@ -63,10 +63,11 @@ table user_attributes {
 
 table shared_user_attributes {
     original_id uuid notnull,
-    duplicate_id uuid notnull,
-    #primary_key primary(original_id, duplicate_id),
+    copy_id uuid notnull,
+    #primary_key primary(original_id, copy_id),
+    #shared_user_attributes_copy_id index(copy_id),
     foreign_key (original_id) references user_attributes(id) on_delete cascade,
-    foreign_key (duplicate_id) references user_attributes(id) on_delete cascade
+    foreign_key (copy_id) references user_attributes(id) on_delete cascade
 }
 
 table inserters {
@@ -393,7 +394,7 @@ action add_credential_by_write_grant (
 action get_credentials() public view {
     SELECT DISTINCT c.id, c.user_id, c.public_notes, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
     FROM credentials AS c
-    LEFT JOIN shared_credentials AS sc ON c.id = sc.duplicate_id
+    LEFT JOIN shared_credentials AS sc ON c.id = sc.copy_id
     INNER JOIN wallets ON c.user_id = wallets.user_id
     WHERE (
         wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
@@ -414,7 +415,7 @@ action edit_credential (
     SELECT CASE
         WHEN EXISTS (
             SELECT 1 from credentials AS c
-                INNER JOIN shared_credentials AS sc on c.id = sc.duplicate_id
+                INNER JOIN shared_credentials AS sc on c.id = sc.copy_id
                 WHERE c.id = $id
                 AND c.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                     OR (wallet_type = 'NEAR' AND public_key = @caller))
@@ -491,7 +492,7 @@ action share_credential (
       , $public_notes_signature
       , $broader_signature
     );
-    INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 }
 
 // It can be used with EVM-compatible signatures only
@@ -557,7 +558,7 @@ action share_credential_through_dag (
         get_inserter_or_null()
     );
 
-    INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 }
 
 action share_credential_by_write_grant (
@@ -612,7 +613,7 @@ action share_credential_by_write_grant (
         get_write_grant_id($user_id)::text
     );
 
-    INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($original_credential_id, $id);
+    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
     INSERT INTO internal_access_grants (
         id,
@@ -700,7 +701,7 @@ procedure get_credential_shared ($id uuid) public view returns table (
     , c.issuer_auth_public_key
     , c.inserter
     FROM credentials AS c
-    LEFT JOIN shared_credentials ON c.id = shared_credentials.duplicate_id
+    LEFT JOIN shared_credentials ON c.id = shared_credentials.copy_id
     LEFT JOIN credentials as oc ON shared_credentials.original_id = oc.id
     WHERE c.id = $id;
 }
@@ -764,7 +765,7 @@ procedure add_attribute($id uuid, $attribute_key text, $value text) public {
 action get_attributes() public view {
     SELECT DISTINCT ha.id, ha.user_id, ha.attribute_key, ha.value, sha.original_id AS original_id
     FROM user_attributes AS ha
-    LEFT JOIN shared_user_attributes AS sha ON ha.id = sha.duplicate_id
+    LEFT JOIN shared_user_attributes AS sha ON ha.id = sha.copy_id
     INNER JOIN wallets ON ha.user_id = wallets.user_id
     WHERE (
         wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
@@ -778,7 +779,7 @@ action edit_attribute($id, $attribute_key, $value) public {
     SELECT CASE
         WHEN EXISTS (
             SELECT 1 from user_attributes AS ha
-                INNER JOIN shared_user_attributes AS sha on ha.id = sha.duplicate_id
+                INNER JOIN shared_user_attributes AS sha on ha.id = sha.copy_id
                 WHERE ha.id = $id
                 AND ha.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                     OR (wallet_type = 'NEAR' AND public_key = @caller))
@@ -811,7 +812,7 @@ procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key 
         $value
     );
 
-    INSERT INTO shared_user_attributes (original_id, duplicate_id)
+    INSERT INTO shared_user_attributes (original_id, copy_id)
     VALUES ($original_attribute_id, $id);
 }
 
@@ -835,7 +836,7 @@ procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id u
     }
 
     $data_id_is_duplicate := false;
-    for $row in SELECT 1 FROM shared_credentials WHERE duplicate_id = $data_id LIMIT 1 {
+    for $row in SELECT 1 FROM shared_credentials WHERE copy_id = $data_id LIMIT 1 {
         $data_id_is_duplicate := true;
     }
     if !$data_id_is_duplicate {
@@ -1010,9 +1011,9 @@ procedure insert_credential_as_owner (
     VALUES ($id, $user_id, $verifiable_credential_id, $public_notes, $content, $encryptor_public_key, $issuer_auth_public_key, $inserter);
 }
 
-procedure insert_shared_cred_as_owner($original_id uuid, $duplicate_id uuid) owner public {
-    INSERT INTO shared_credentials (original_id, duplicate_id)
-    VALUES ($original_id, $duplicate_id);
+procedure insert_shared_cred_as_owner($original_id uuid, $copy_id uuid) owner public {
+    INSERT INTO shared_credentials (original_id, copy_id)
+    VALUES ($original_id, $copy_id);
 }
 
 procedure insert_user_attribute_as_owner($id uuid, $user_id uuid, $attribute_key text, $value text, $inserter text) owner public {
@@ -1020,9 +1021,9 @@ procedure insert_user_attribute_as_owner($id uuid, $user_id uuid, $attribute_key
     VALUES ($id, $user_id, $attribute_key, $value, $inserter);
 }
 
-procedure insert_shared_attr_as_owner($original_id uuid, $duplicate_id uuid) owner public {
-    INSERT INTO shared_user_attributes (original_id, duplicate_id)
-    VALUES ($original_id, $duplicate_id);
+procedure insert_shared_attr_as_owner($original_id uuid, $copy_id uuid) owner public {
+    INSERT INTO shared_user_attributes (original_id, copy_id)
+    VALUES ($original_id, $copy_id);
 }
 
 // Some entities no need special actions because main actions do the same
@@ -1113,15 +1114,15 @@ procedure migrate_credentials($dbid text) public owner {
 }
 
 
-procedure all_shared_credentials_as_owner() public view owner returns table (original_id uuid, duplicate_id uuid) {
-    return SELECT original_id, duplicate_id FROM shared_credentials;
+procedure all_shared_credentials_as_owner() public view owner returns table (original_id uuid, copy_id uuid) {
+    return SELECT original_id, copy_id FROM shared_credentials;
 }
 
-foreign procedure get_all_shared_credentials() returns table (original_id uuid, duplicate_id uuid)
+foreign procedure get_all_shared_credentials() returns table (original_id uuid, copy_id uuid)
 
 procedure migrate_shared_credentials($dbid text) public owner {
-    for $row in SELECT original_id, duplicate_id FROM get_all_shared_credentials[$dbid, 'all_shared_credentials_as_owner']() {
-        INSERT INTO shared_credentials (original_id, duplicate_id) VALUES ($row.original_id, $row.duplicate_id);
+    for $row in SELECT original_id, copy_id FROM get_all_shared_credentials[$dbid, 'all_shared_credentials_as_owner']() {
+        INSERT INTO shared_credentials (original_id, copy_id) VALUES ($row.original_id, $row.copy_id);
     }
 }
 
@@ -1141,15 +1142,15 @@ procedure migrate_user_attributes($dbid text) public owner {
 }
 
 
-procedure all_shared_user_attrs_as_owner() public view owner returns table (original_id uuid, duplicate_id uuid) {
-    return SELECT original_id, duplicate_id FROM shared_user_attributes;
+procedure all_shared_user_attrs_as_owner() public view owner returns table (original_id uuid, copy_id uuid) {
+    return SELECT original_id, copy_id FROM shared_user_attributes;
 }
 
-foreign procedure get_all_shared_user_attrs() returns table (original_id uuid, duplicate_id uuid)
+foreign procedure get_all_shared_user_attrs() returns table (original_id uuid, copy_id uuid)
 
 procedure migrate_shared_user_attrs($dbid text) public owner {
-    for $row in SELECT original_id, duplicate_id FROM get_all_shared_user_attrs[$dbid, 'all_shared_user_attrs_as_owner']() {
-        INSERT INTO shared_user_attributes (original_id, duplicate_id) VALUES ($row.original_id, $row.duplicate_id);
+    for $row in SELECT original_id, copy_id FROM get_all_shared_user_attrs[$dbid, 'all_shared_user_attrs_as_owner']() {
+        INSERT INTO shared_user_attributes (original_id, copy_id) VALUES ($row.original_id, $row.copy_id);
     }
 }
 
