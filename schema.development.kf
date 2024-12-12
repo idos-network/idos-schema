@@ -588,7 +588,7 @@ action share_credential_by_write_grant (
         error('you can share only original credentials you created')
     END;
 
-    SELECT CASE WHEN (SELECT count(1) FROM internal_access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee::text, $original_credential_id::text, $locked_until::text))) > 0 THEN
+    SELECT CASE WHEN (SELECT count(1) FROM internal_access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $original_credential_id::text, $locked_until::text))) > 0 THEN
         error('a grant with the same grantee, original_credential_id, and locked_until already exists')
     END;
 
