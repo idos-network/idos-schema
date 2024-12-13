@@ -506,8 +506,8 @@ action share_credential_through_dag (
 , $public_notes_signature
 , $broader_signature
 , $original_credential_id
-, $dag_owner
-, $dag_grantee
+, $dag_owner_wallet_identifier
+, $dag_grantee_wallet_identifier
 , $dag_locked_until
 , $dag_signature
 ) public {
@@ -520,7 +520,7 @@ action share_credential_through_dag (
     END;
 
     // This works for EVM-compatible signatures only
-    $owner_verified = idos.verify_owner($dag_owner, $dag_grantee, $id, $dag_locked_until, $dag_signature);
+    $owner_verified = idos.verify_owner($dag_owner_wallet_identifier, $dag_grantee_wallet_identifier, $id, $dag_locked_until, $dag_signature);
     SELECT CASE WHEN $owner_verified != 1 THEN
         error('the dag_signature is invalid')
     END;
@@ -538,7 +538,7 @@ action share_credential_through_dag (
         SELECT 1 from users
             INNER JOIN wallets ON users.id = wallets.user_id
             WHERE wallet_type = 'EVM'
-            AND address=$dag_owner COLLATE NOCASE
+            AND address=$dag_owner_wallet_identifier COLLATE NOCASE
             AND user_id = $user_id
     ) THEN
         error('the DAG is not signed by the user')
