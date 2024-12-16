@@ -970,6 +970,12 @@ procedure get_internal_ag_granted ($page int, $size int) public view returns tab
         WHERE ag_grantee_wallet_identifier =  @caller ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
 }
 
+@kgw(authn='true')
+procedure get_internal_ag_granted_count () public view returns table(count int) {
+    return SELECT COUNT(1) as count FROM internal_access_grants
+        WHERE ag_grantee_wallet_identifier =  @caller;
+}
+
 
 // BOTH GRANTS ACTIONS
 
