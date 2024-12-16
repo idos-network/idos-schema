@@ -114,7 +114,7 @@ table internal_access_grants {
     ag_grantee_wallet_identifier text notnull,
     data_id uuid notnull,
     locked_until int notnull default(0),
-    height int notnull default (1), // TODO: We should remove `defalut` in the next migration
+    height int notnull default(1), // TODO: We should remove `defalut` in the next migration
     write_grant_id uuid, // This should be notnull, but we do set it to null in the FK.
     foreign_key (write_grant_id) references write_grants(id) on_delete set null,
     foreign_key (ag_owner_user_id) references users(id) on_delete cascade,
