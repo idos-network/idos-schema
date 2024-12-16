@@ -114,6 +114,7 @@ table internal_access_grants {
     ag_grantee_wallet_identifier text notnull,
     data_id uuid notnull,
     locked_until int notnull default(0),
+    height int notnull default (1), // TODO: We should remove `defalut` in the next migration
     write_grant_id uuid, // This should be notnull, but we do set it to null in the FK.
     foreign_key (write_grant_id) references write_grants(id) on_delete set null,
     foreign_key (ag_owner_user_id) references users(id) on_delete cascade,
@@ -621,6 +622,7 @@ action share_credential_by_write_grant (
         ag_grantee_wallet_identifier,
         data_id,
         locked_until,
+        height,
         write_grant_id
     ) VALUES (
         uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $original_credential_id::text, $locked_until::text)),
@@ -628,6 +630,7 @@ action share_credential_by_write_grant (
         $grantee_wallet_identifier,
         $id,
         $locked_until::int,
+        @height,
         get_write_grant_id($user_id)
     );
 }
@@ -941,10 +944,35 @@ procedure get_internal_ag_owned () public view returns table (id uuid, ag_owner_
             OR (wallet_type = 'NEAR' AND public_key = @caller));
 }
 
+// As arguments can be undefined (user can not send them at all), we have to have default values: page=1, size=20
+// Page number starts from 1, as UI usually shows to user in pagination element
+// Ordering is consistent because we use height as first odering parameter
 @kgw(authn='true')
-procedure get_internal_ag_granted () public view returns table (id uuid, ag_owner_user_id uuid,
+procedure get_internal_ag_granted ($page int, $size int) public view returns table (id uuid, ag_owner_user_id uuid,
     ag_grantee_wallet_identifier text, data_id uuid, locked_until int) {
+    $index int := 0;
+    if $page < 1 {
+        error('page has to be a positive integer');
+    } else {
+        $index := $page - 1;
+    }
+
+    $limit int := 20;
+    if $size < 1 {
+        error('size has to be a positive integer');
+    } else {
+        $limit := $size;
+    }
+
+    $offset int := $index * $limit;
+
     return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until FROM internal_access_grants
+        WHERE ag_grantee_wallet_identifier =  @caller ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
+}
+
+@kgw(authn='true')
+procedure get_internal_ag_granted_count () public view returns table(count int) {
+    return SELECT COUNT(1) as count FROM internal_access_grants
         WHERE ag_grantee_wallet_identifier =  @caller;
 }
 
@@ -1041,9 +1069,9 @@ procedure insert_external_ags_as_owner($id uuid, $ag_owner text, $ag_grantee tex
 }
 
 procedure insert_internal_ags_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee_wallet_identifier text, $data_id uuid,
-    $locked_until int, $write_grant_id uuid) owner public {
-    INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, write_grant_id)
-    VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $write_grant_id);
+    $locked_until int, $height int, $write_grant_id uuid) owner public {
+    INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, write_grant_id)
+    VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $height, $write_grant_id);
 }
 
 procedure insert_write_grants_as_owner($id uuid, $wg_owner_wallet_identifier text, $wg_grantee_wallet_identifier text, $wg_owner_user_id uuid) owner public {
@@ -1200,18 +1228,18 @@ procedure migrate_external_grants($dbid text) public owner {
 
 
 procedure all_internal_grants_as_owner() public view owner returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
-    data_id uuid, locked_until int, write_grant_id uuid) {
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, write_grant_id FROM internal_access_grants;
+    data_id uuid, locked_until int, height int, write_grant_id uuid) {
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, write_grant_id FROM internal_access_grants;
 }
 
 foreign procedure get_all_internal_grants() returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
-    data_id uuid, locked_until int, write_grant_id uuid)
+    data_id uuid, locked_until int, height int, write_grant_id uuid)
 
 procedure migrate_internal_grants($dbid text) public owner {
-    for $row in SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, write_grant_id
+    for $row in SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, write_grant_id
         FROM get_all_internal_grants[$dbid, 'all_internal_grants_as_owner']() {
-        INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, write_grant_id)
-            VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.write_grant_id);
+        INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, write_grant_id)
+            VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.height, $row.write_grant_id);
     }
 }
 
