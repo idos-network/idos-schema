@@ -953,7 +953,7 @@ procedure get_internal_ag_granted ($page int, $size int) public view returns tab
     $index int := 0;
     if $page < 1 {
         error('page has to be a positive integer');
-    } elseif $page > 1 {
+    } else {
         $index := $page - 1;
     }
 
