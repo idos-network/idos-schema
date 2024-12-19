@@ -115,8 +115,8 @@ table internal_access_grants {
     data_id uuid notnull,
     locked_until int notnull default(0),
     height int notnull default(1), // TODO: We should remove `defalut` in the next migration
-    write_grant_id uuid, // This should be notnull, but we do set it to null in the FK.
-    foreign_key (write_grant_id) references write_grants(id) on_delete set null,
+    inserter_type text notnull,
+    inserter_id text notnull,
     foreign_key (ag_owner_user_id) references users(id) on_delete cascade,
     #iag_data_id index(data_id),
     #iag_ag_grantee_wallet_identifier index(ag_grantee_wallet_identifier),
@@ -465,7 +465,7 @@ procedure remove_credential($id uuid) public {
     DELETE FROM internal_access_grants WHERE data_id = $id;
 }
 
-// Do we need this procedure? Can share_credential_through_dag cover all cases?
+// Do we need this action? Can share_credential_through_dag cover all cases?
 action share_credential (
   $id
 , $original_credential_id
@@ -475,6 +475,8 @@ action share_credential (
 , $content
 , $encryptor_public_key
 , $issuer_auth_public_key
+, $grantee_wallet_identifier
+, $locked_until
 ) public {
     SELECT CASE WHEN NOT credential_belongs_to_caller($original_credential_id) THEN
         error('The original credential does not belong to the caller')
@@ -494,6 +496,28 @@ action share_credential (
       , $broader_signature
     );
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
+
+    INSERT INTO internal_access_grants (
+        id,
+        ag_owner_user_id,
+        ag_grantee_wallet_identifier,
+        data_id,
+        locked_until,
+        height,
+        inserter_type,
+        inserter_id
+    ) VALUES (
+        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $original_credential_id::text, $locked_until::text)),
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)
+        ),
+        $grantee_wallet_identifier,
+        $id,
+        $locked_until::int,
+        @height,
+        'user',
+        @caller
+    );
 }
 
 // It can be used with EVM-compatible signatures only
@@ -560,6 +584,26 @@ action share_credential_through_dag (
     );
 
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
+
+    INSERT INTO internal_access_grants (
+        id,
+        ag_owner_user_id,
+        ag_grantee_wallet_identifier,
+        data_id,
+        locked_until,
+        height,
+        inserter_type,
+        inserter_id
+    ) VALUES (
+        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $dag_grantee_wallet_identifier::text, $original_credential_id::text, $dag_locked_until::text)),
+        $user_id,
+        $dag_grantee_wallet_identifier,
+        $id,
+        $dag_locked_until::int,
+        @height,
+        'dag_message',
+        @caller
+    );
 }
 
 action share_credential_by_write_grant (
@@ -623,7 +667,8 @@ action share_credential_by_write_grant (
         data_id,
         locked_until,
         height,
-        write_grant_id
+        inserter_type,
+        inserter_id
     ) VALUES (
         uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $original_credential_id::text, $locked_until::text)),
         $user_id,
@@ -631,7 +676,8 @@ action share_credential_by_write_grant (
         $id,
         $locked_until::int,
         @height,
-        get_write_grant_id($user_id)
+        'write_grant',
+        get_write_grant_id($user_id)::text
     );
 }
 
@@ -669,17 +715,7 @@ procedure get_credential_shared ($id uuid) public view returns table (
         error('the credential does not exist');
     }
 
-    $ext_ag_granted bool := false;
-    $ext_ag_grant_valid bool := false;
     $int_ag_granted bool := false;
-
-    for $ext_ag_row in SELECT status FROM external_access_grants WHERE data_id = $id::TEXT AND ag_grantee = @caller COLLATE NOCASE {
-        $ext_ag_granted := true;
-        if $ext_ag_row.status == 'valid' {
-            $ext_ag_grant_valid := true;
-            break;
-        }
-    }
 
     for $int_ag_row in SELECT 1 FROM internal_access_grants WHERE data_id = $id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
         $int_ag_granted := true;
@@ -687,13 +723,7 @@ procedure get_credential_shared ($id uuid) public view returns table (
 
     // We only keep valid internal AGs. So, we only need to double-check the validity for external AGs.
     if !$int_ag_granted {
-        if !$ext_ag_granted {
-            error('the credential is not shared with the caller');
-        }
-
-        if !$ext_ag_grant_valid {
-            error('the credential has no valid access grant; for more details, call list_external_ag_statuses');
-        }
+        error('the credential is not shared with the caller');
     }
 
     return SELECT c.id
@@ -938,8 +968,8 @@ procedure revoke_internal_access_grant ($id uuid) public {
 
 @kgw(authn='true')
 procedure get_internal_ag_owned () public view returns table (id uuid, ag_owner_user_id uuid,
-    ag_grantee_wallet_identifier text, data_id uuid, locked_until int, write_grant_id uuid) {
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, write_grant_id FROM internal_access_grants
+    ag_grantee_wallet_identifier text, data_id uuid, locked_until int, inserter_type text, inserter_id text) {
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, inserter_type, inserter_id FROM internal_access_grants
         WHERE ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller));
 }
@@ -981,14 +1011,6 @@ procedure get_internal_ag_granted_count () public view returns table(count int) 
 
 @kgw(authn='true')
 procedure has_locked_grants($id uuid) public view returns (has bool) {
-    for $ext_row in SELECT 1 FROM external_access_grants
-            WHERE data_id = $id::TEXT
-            AND ag_owner = @caller COLLATE NOCASE
-            AND status = 'valid'
-            AND locked_until >= @block_timestamp LIMIT 1 {
-        return true;
-    }
-
     for $int_row in SELECT 1 FROM internal_access_grants
             WHERE data_id = $id
             AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
@@ -1069,9 +1091,9 @@ procedure insert_external_ags_as_owner($id uuid, $ag_owner text, $ag_grantee tex
 }
 
 procedure insert_internal_ags_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee_wallet_identifier text, $data_id uuid,
-    $locked_until int, $height int, $write_grant_id uuid) owner public {
-    INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, write_grant_id)
-    VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $height, $write_grant_id);
+    $locked_until int, $height int, $inserter_type text, $inserter_id text) owner public {
+    INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
+    VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $height, $inserter_type, $inserter_id);
 }
 
 procedure insert_write_grants_as_owner($id uuid, $wg_owner_wallet_identifier text, $wg_grantee_wallet_identifier text, $wg_owner_user_id uuid) owner public {
@@ -1228,18 +1250,18 @@ procedure migrate_external_grants($dbid text) public owner {
 
 
 procedure all_internal_grants_as_owner() public view owner returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
-    data_id uuid, locked_until int, height int, write_grant_id uuid) {
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, write_grant_id FROM internal_access_grants;
+    data_id uuid, locked_until int, height int, inserter_type text, inserter_id text) {
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id FROM internal_access_grants;
 }
 
 foreign procedure get_all_internal_grants() returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
-    data_id uuid, locked_until int, height int, write_grant_id uuid)
+    data_id uuid, locked_until int, height int, inserter_type text, inserter_id text)
 
 procedure migrate_internal_grants($dbid text) public owner {
-    for $row in SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, write_grant_id
+    for $row in SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id
         FROM get_all_internal_grants[$dbid, 'all_internal_grants_as_owner']() {
-        INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, write_grant_id)
-            VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.height, $row.write_grant_id);
+        INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
+            VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.height, $row.inserter_type, $row.inserter_id);
     }
 }
 
