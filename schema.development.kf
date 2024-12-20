@@ -81,22 +81,6 @@ table delegates {
     foreign_key (inserter_id) references inserters(id) on_delete cascade
 }
 
-table external_access_grants {
-    id uuid primary,
-    ag_owner text notnull,
-    ag_grantee text notnull,
-    data_id text notnull,
-    locked_until int notnull,
-    ag_chain text notnull,
-    tx_hash text,
-    block_hash text,
-    height int,
-    // data_id in contract can be any data, but idOS expects uuid of a credential, so we need a status field to mark validity of the access grant
-    status text, // valid, invalid_by_reason, ...
-    #external_ag_data_id_grantee index(data_id, ag_grantee),
-    #external_ag_data_id_owner index(data_id, ag_owner)
-}
-
 // A user gives a grant to write data (create a credential, share the credential) on his behalf to some issuer
 table write_grants {
     id uuid primary,
@@ -850,45 +834,6 @@ procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key 
 }
 
 
-// EXTERNAL ACCESS GRANTS ACTIONS
-
-@kgw(authn='true')
-procedure list_external_ag_statuses($data_id text) public view returns table (ag_owner text, ag_grantee text, locked_until int, status text) {
-    return
-        SELECT ag_owner, ag_grantee, locked_until, status
-        FROM external_access_grants
-        WHERE data_id = $data_id
-          AND ag_grantee = @caller;
-}
-
-// This procedure is used in an oracle resolution to determine the status of a AG at the moment of adding it into idOS
-// It needs to be done at this moment because of later defining data can change (original credential deleted, owner wallet or profile removed etc.)
-procedure define_ag_status_as_owner($ag_owner text, $ag_grantee text, $data_id uuid) public view owner returns (status text) {
-    if !credential_exist($data_id) {
-        return 'invalid_data_id_not_found';
-    }
-
-    $data_id_is_duplicate := false;
-    for $row in SELECT 1 FROM shared_credentials WHERE copy_id = $data_id LIMIT 1 {
-        $data_id_is_duplicate := true;
-    }
-    if !$data_id_is_duplicate {
-        return 'invalid_data_id_is_not_a_duplicate';
-    }
-
-    for $row2 in SELECT 1 FROM wallets
-        INNER JOIN credentials ON credentials.user_id = wallets.user_id
-        WHERE credentials.id = $data_id
-        AND ((wallets.address = $ag_owner COLLATE NOCASE AND wallets.wallet_type = 'EVM')
-            OR (wallets.public_key = $ag_owner COLLATE NOCASE AND wallets.wallet_type = 'NEAR'))
-        LIMIT 1 {
-            return 'valid';
-        }
-
-    return 'invalid_ag_owner_does_not_match_original_credential_owner';
-}
-
-
 // WRITE GRANTS ACTIONS
 
 procedure add_write_grant($wg_grantee_wallet_identifier text) public {
@@ -1081,15 +1026,6 @@ procedure insert_shared_attr_as_owner($original_id uuid, $copy_id uuid) owner pu
 // delegates: add_delegate_as_owner
 // configs: upsert_config_as_owner
 
-procedure insert_external_ags_as_owner($id uuid, $ag_owner text, $ag_grantee text, $data_id text,
-    $locked_until int, $ag_chain text, $tx_hash text, $block_hash text, $height int, $status text
-    ) owner public {
-    INSERT INTO external_access_grants (id, ag_owner, ag_grantee, data_id, locked_until, ag_chain,
-        tx_hash, block_hash, height, status)
-    VALUES ($id, $ag_owner, $ag_grantee, $data_id, $locked_until, $ag_chain,
-        $tx_hash, $block_hash, $height, $status);
-}
-
 procedure insert_internal_ags_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee_wallet_identifier text, $data_id uuid,
     $locked_until int, $height int, $inserter_type text, $inserter_id text) owner public {
     INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
@@ -1230,25 +1166,6 @@ procedure migrate_delegates($dbid text) public owner {
     }
 }
 
-
-procedure all_external_grants_as_owner() public view owner returns table (id uuid, ag_owner text, ag_grantee text,
-    data_id text, locked_until int, ag_chain text, tx_hash text, height int, block_hash text) {
-    return SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash FROM external_access_grants;
-}
-
-foreign procedure get_all_external_grants() returns table (id uuid, ag_owner text, ag_grantee text,
-    data_id text, locked_until int, ag_chain text, tx_hash text, height int, block_hash text)
-
-procedure migrate_external_grants($dbid text) public owner {
-    for $row in SELECT id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash
-        FROM get_all_external_grants[$dbid, 'all_external_grants_as_owner']() {
-        INSERT INTO external_access_grants (id, ag_owner, ag_grantee, data_id, locked_until, ag_chain, tx_hash, height, block_hash)
-            VALUES ($row.id, $row.ag_owner, $row.ag_grantee, $row.data_id, $row.locked_until, $row.ag_chain,
-            $row.tx_hash, $row.height, $row.block_hash);
-    }
-}
-
-
 procedure all_internal_grants_as_owner() public view owner returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
     data_id uuid, locked_until int, height int, inserter_type text, inserter_id text) {
     return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id FROM internal_access_grants;
@@ -1304,7 +1221,6 @@ procedure migrate_all_data($old_dbid text) public owner {
     migrate_shared_user_attrs($old_dbid);
     migrate_inserters($old_dbid);
     migrate_delegates($old_dbid);
-    migrate_external_grants($old_dbid);
     migrate_write_grants($old_dbid); // WGs must be inserted before internal AGs
     migrate_internal_grants($old_dbid);
     migrate_configs($old_dbid);
