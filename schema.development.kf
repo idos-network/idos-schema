@@ -489,7 +489,8 @@ action share_credential (
     );
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
-    create_access_grant(
+    // SELECT is just a strange way of calling a procedure from an action
+    SELECT create_access_grant(
         $original_credential_id,
         get_caller_user_id(),
         $grantee_wallet_identifier,
@@ -565,7 +566,8 @@ action share_credential_through_dag (
 
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
-    create_access_grant(
+    // SELECT is just a strange way of calling a procedure from an action
+    SELECT create_access_grant(
         $original_credential_id,
         $user_id,
         $dag_grantee_wallet_identifier,
@@ -630,7 +632,8 @@ action share_credential_by_write_grant (
 
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
-    create_access_grant(
+    // SELECT is just a strange way of calling a procedure from an action
+    SELECT create_access_grant(
         $original_credential_id,
         $user_id,
         $grantee_wallet_identifier,
@@ -641,15 +644,15 @@ action share_credential_by_write_grant (
     );
 }
 
-action create_access_grant(
-    $original_credential_id,
-    $user_id,
-    $grantee_wallet_identifier,
-    $data_id,
-    $locked_until,
-    $inserter_type,
-    $inserter_id
-) private {
+procedure create_access_grant(
+    $original_credential_id uuid,
+    $user_id uuid,
+    $grantee_wallet_identifier text,
+    $data_id uuid,
+    $locked_until int,
+    $inserter_type text,
+    $inserter_id text
+) private returns (bool) {
     INSERT INTO access_grants (
         id,
         ag_owner_user_id,
@@ -664,11 +667,13 @@ action create_access_grant(
         $user_id,
         $grantee_wallet_identifier,
         $data_id,
-        $locked_until::int,
+        $locked_until,
         @height,
         $inserter_type,
         $inserter_id
     );
+
+    return true; // As this procedure can be called from an action (in SELECT), we have to return a value
 }
 
 @kgw(authn='true')
@@ -1032,7 +1037,7 @@ procedure insert_shared_attr_as_owner($original_id uuid, $copy_id uuid) owner pu
 // delegates: add_delegate_as_owner
 // configs: upsert_config_as_owner
 
-procedure insert_internal_ags_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee_wallet_identifier text, $data_id uuid,
+procedure insert_access_grants_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee_wallet_identifier text, $data_id uuid,
     $locked_until int, $height int, $inserter_type text, $inserter_id text) owner public {
     INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
     VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $height, $inserter_type, $inserter_id);
@@ -1230,4 +1235,53 @@ procedure migrate_all_data($old_dbid text) public owner {
     migrate_write_grants($old_dbid); // WGs must be inserted before internal AGs
     migrate_internal_grants($old_dbid);
     migrate_configs($old_dbid);
+}
+
+procedure migrate_ext_grants_as_owner(
+    $id uuid,
+    $ag_owner text,
+    $ag_grantee text,
+    $data_id uuid,
+    $locked_until int,
+    $ag_chain text,
+    $tx_hash text,
+    $block_hash text,
+    $height int,
+    $status text
+) public owner {
+    // We don't need to insert non valid AGs
+    if $status != 'valid' {
+        return;
+    }
+
+    // Deleting credentials or even users don't trigger removal external AGs from DB. So we need to check the user still exists.
+    $user_id text := '';
+    for $row in SELECT user_id FROM credentials WHERE id = $data_id {
+        $user_id := $row.user_id::text;
+    }
+        if $user_id == '' {
+        return;
+    }
+
+    // There can be copy is exists and shared, but original credential was deleted.
+    // In this case, as original credential id is used for determining AG's is, we will set credential `id` as id of external AG
+    $original_credential_id text := '';
+    for $row2 in SELECT original_id FROM shared_credentials WHERE copy_id = $data_id {
+        $original_credential_id := $row2.original_id::text;
+    }
+
+    $id_for_creation uuid := $id;
+    if $original_credential_id != '' {
+        $id_for_creation := $original_credential_id::uuid;
+    }
+
+    create_access_grant(
+        $id_for_creation,
+        $user_id::uuid,
+        $ag_grantee,
+        $data_id,
+        $locked_until,
+        'external_grant',
+        'owner'
+    );
 }
