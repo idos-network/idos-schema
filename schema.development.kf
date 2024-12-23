@@ -91,7 +91,6 @@ table write_grants {
     foreign_key (wg_owner_user_id) references users(id) on_delete cascade
 }
 
-// internal access grants can be granted if such permission is in write_grants
 table access_grants {
     id uuid primary,
     ag_owner_user_id uuid notnull,
@@ -445,8 +444,8 @@ procedure remove_credential($id uuid) public {
         error('the credential does not belong to the caller');
     }
 
-    if has_locked_grants($id) {
-        error('there are locked grants for this credential');
+    if has_locked_access_grants($id) {
+        error('there are locked access grants for this credential');
     }
     DELETE FROM credentials
     WHERE id=$id
@@ -717,7 +716,6 @@ procedure get_credential_shared ($id uuid) public view returns table (
         break;
     }
 
-    // We only keep valid internal AGs. So, we only need to double-check the validity for external AGs.
     if !$int_ag_granted {
         error('the credential is not shared with the caller');
     }
@@ -896,18 +894,18 @@ procedure has_write_grant_given_by($user_id uuid) public view returns (has_given
 }
 
 
-// INTERNAL ACCESS GRANTS ACTIONS
+// ACCESS GRANTS ACTIONS
 
 procedure revoke_access_grant ($id uuid) public {
-    $iag_exist := false;
+    $ag_exist := false;
     for $row in SELECT 1 FROM access_grants WHERE id = $id
         AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)) {
-        $iag_exist := true;
+        $ag_exist := true;
     }
 
-    if !$iag_exist {
-        error('the internal access grant not found');
+    if !$ag_exist {
+        error('the access grant not found');
     }
 
     for $row2 in SELECT 1 FROM access_grants WHERE id = $id
@@ -924,7 +922,7 @@ procedure revoke_access_grant ($id uuid) public {
 }
 
 @kgw(authn='true')
-procedure get_internal_ag_owned () public view returns table (id uuid, ag_owner_user_id uuid,
+procedure get_access_grants_owned () public view returns table (id uuid, ag_owner_user_id uuid,
     ag_grantee_wallet_identifier text, data_id uuid, locked_until int, inserter_type text, inserter_id text) {
     return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, inserter_type, inserter_id FROM access_grants
         WHERE ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
@@ -935,7 +933,7 @@ procedure get_internal_ag_owned () public view returns table (id uuid, ag_owner_
 // Page number starts from 1, as UI usually shows to user in pagination element
 // Ordering is consistent because we use height as first odering parameter
 @kgw(authn='true')
-procedure get_internal_ag_granted ($page int, $size int) public view returns table (id uuid, ag_owner_user_id uuid,
+procedure get_access_grants_granted ($page int, $size int) public view returns table (id uuid, ag_owner_user_id uuid,
     ag_grantee_wallet_identifier text, data_id uuid, locked_until int) {
     $index int := 0;
     if $page < 1 {
@@ -958,17 +956,14 @@ procedure get_internal_ag_granted ($page int, $size int) public view returns tab
 }
 
 @kgw(authn='true')
-procedure get_internal_ag_granted_count () public view returns table(count int) {
+procedure get_access_grants_granted_count () public view returns table(count int) {
     return SELECT COUNT(1) as count FROM access_grants
         WHERE ag_grantee_wallet_identifier =  @caller;
 }
 
-
-// BOTH GRANTS ACTIONS
-
 @kgw(authn='true')
-procedure has_locked_grants($id uuid) public view returns (has bool) {
-    for $int_row in SELECT 1 FROM access_grants
+procedure has_locked_access_grants($id uuid) public view returns (has bool) {
+    for $ag_row in SELECT 1 FROM access_grants
             WHERE data_id = $id
             AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                 OR (wallet_type = 'NEAR' AND public_key = @caller))
@@ -1178,17 +1173,17 @@ procedure migrate_delegates($dbid text) public owner {
     }
 }
 
-procedure all_internal_grants_as_owner() public view owner returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
+procedure all_access_grants_as_owner() public view owner returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
     data_id uuid, locked_until int, height int, inserter_type text, inserter_id text) {
     return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id FROM access_grants;
 }
 
-foreign procedure get_all_internal_grants() returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
+foreign procedure get_all_access_grants() returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
     data_id uuid, locked_until int, height int, inserter_type text, inserter_id text)
 
-procedure migrate_internal_grants($dbid text) public owner {
+procedure migrate_access_grants($dbid text) public owner {
     for $row in SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id
-        FROM get_all_internal_grants[$dbid, 'all_internal_grants_as_owner']() {
+        FROM get_all_access_grants[$dbid, 'all_access_grants_as_owner']() {
         INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
             VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.height, $row.inserter_type, $row.inserter_id);
     }
@@ -1233,8 +1228,8 @@ procedure migrate_all_data($old_dbid text) public owner {
     migrate_shared_user_attrs($old_dbid);
     migrate_inserters($old_dbid);
     migrate_delegates($old_dbid);
-    migrate_write_grants($old_dbid); // WGs must be inserted before internal AGs
-    migrate_internal_grants($old_dbid);
+    migrate_write_grants($old_dbid); // WGs must be inserted before access grants
+    migrate_access_grants($old_dbid);
     migrate_configs($old_dbid);
 }
 
@@ -1255,12 +1250,12 @@ procedure migrate_ext_grants_as_owner(
         return;
     }
 
-    // Deleting credentials or even users don't trigger removal external AGs from DB. So we need to check the user still exists.
+    // Deleting credentials or even users, don't trigger removal external AGs from DB. So we need to check the user still exists.
     $user_id text := '';
     for $row in SELECT user_id FROM credentials WHERE id = $data_id {
         $user_id := $row.user_id::text;
     }
-        if $user_id == '' {
+    if $user_id == '' {
         return;
     }
 
