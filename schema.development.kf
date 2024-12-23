@@ -709,14 +709,14 @@ procedure get_credential_shared ($id uuid) public view returns table (
         error('the credential does not exist');
     }
 
-    $int_ag_granted bool := false;
+    $ag_granted bool := false;
 
     for $int_ag_row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
-        $int_ag_granted := true;
+        $ag_granted := true;
         break;
     }
 
-    if !$int_ag_granted {
+    if !$ag_granted {
         error('the credential is not shared with the caller');
     }
 
