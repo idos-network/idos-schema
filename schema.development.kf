@@ -92,7 +92,7 @@ table write_grants {
 }
 
 // internal access grants can be granted if such permission is in write_grants
-table internal_access_grants {
+table access_grants {
     id uuid primary,
     ag_owner_user_id uuid notnull,
     ag_grantee_wallet_identifier text notnull,
@@ -446,7 +446,7 @@ procedure remove_credential($id uuid) public {
         OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
 
-    DELETE FROM internal_access_grants WHERE data_id = $id;
+    DELETE FROM access_grants WHERE data_id = $id;
 }
 
 // Do we need this action? Can share_credential_through_dag cover all cases?
@@ -481,7 +481,7 @@ action share_credential (
     );
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
-    INSERT INTO internal_access_grants (
+    INSERT INTO access_grants (
         id,
         ag_owner_user_id,
         ag_grantee_wallet_identifier,
@@ -569,7 +569,7 @@ action share_credential_through_dag (
 
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
-    INSERT INTO internal_access_grants (
+    INSERT INTO access_grants (
         id,
         ag_owner_user_id,
         ag_grantee_wallet_identifier,
@@ -617,7 +617,7 @@ action share_credential_by_write_grant (
         error('you can share only original credentials you created')
     END;
 
-    SELECT CASE WHEN (SELECT count(1) FROM internal_access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $original_credential_id::text, $locked_until::text))) > 0 THEN
+    SELECT CASE WHEN (SELECT count(1) FROM access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $original_credential_id::text, $locked_until::text))) > 0 THEN
         error('a grant with the same grantee, original_credential_id, and locked_until already exists')
     END;
 
@@ -644,7 +644,7 @@ action share_credential_by_write_grant (
 
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
-    INSERT INTO internal_access_grants (
+    INSERT INTO access_grants (
         id,
         ag_owner_user_id,
         ag_grantee_wallet_identifier,
@@ -701,7 +701,7 @@ procedure get_credential_shared ($id uuid) public view returns table (
 
     $int_ag_granted bool := false;
 
-    for $int_ag_row in SELECT 1 FROM internal_access_grants WHERE data_id = $id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
+    for $int_ag_row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
         $int_ag_granted := true;
     }
 
@@ -888,7 +888,7 @@ procedure has_write_grant_given_by($user_id uuid) public view returns (has_given
 
 procedure revoke_internal_access_grant ($id uuid) public {
     $iag_exist := false;
-    for $row in SELECT 1 FROM internal_access_grants WHERE id = $id
+    for $row in SELECT 1 FROM access_grants WHERE id = $id
         AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)) {
         $iag_exist := true;
@@ -898,14 +898,14 @@ procedure revoke_internal_access_grant ($id uuid) public {
         error('the internal access grant not found');
     }
 
-    for $row2 in SELECT 1 FROM internal_access_grants WHERE id = $id
+    for $row2 in SELECT 1 FROM access_grants WHERE id = $id
         AND locked_until >= @block_timestamp
         AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)) {
         error('the grant is locked');
     }
 
-    DELETE FROM internal_access_grants
+    DELETE FROM access_grants
     WHERE id = $id
     AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller));
@@ -914,7 +914,7 @@ procedure revoke_internal_access_grant ($id uuid) public {
 @kgw(authn='true')
 procedure get_internal_ag_owned () public view returns table (id uuid, ag_owner_user_id uuid,
     ag_grantee_wallet_identifier text, data_id uuid, locked_until int, inserter_type text, inserter_id text) {
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, inserter_type, inserter_id FROM internal_access_grants
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, inserter_type, inserter_id FROM access_grants
         WHERE ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller));
 }
@@ -941,13 +941,13 @@ procedure get_internal_ag_granted ($page int, $size int) public view returns tab
 
     $offset int := $index * $limit;
 
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until FROM internal_access_grants
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until FROM access_grants
         WHERE ag_grantee_wallet_identifier =  @caller ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
 }
 
 @kgw(authn='true')
 procedure get_internal_ag_granted_count () public view returns table(count int) {
-    return SELECT COUNT(1) as count FROM internal_access_grants
+    return SELECT COUNT(1) as count FROM access_grants
         WHERE ag_grantee_wallet_identifier =  @caller;
 }
 
@@ -956,7 +956,7 @@ procedure get_internal_ag_granted_count () public view returns table(count int) 
 
 @kgw(authn='true')
 procedure has_locked_grants($id uuid) public view returns (has bool) {
-    for $int_row in SELECT 1 FROM internal_access_grants
+    for $int_row in SELECT 1 FROM access_grants
             WHERE data_id = $id
             AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                 OR (wallet_type = 'NEAR' AND public_key = @caller))
@@ -1028,7 +1028,7 @@ procedure insert_shared_attr_as_owner($original_id uuid, $copy_id uuid) owner pu
 
 procedure insert_internal_ags_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee_wallet_identifier text, $data_id uuid,
     $locked_until int, $height int, $inserter_type text, $inserter_id text) owner public {
-    INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
+    INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
     VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $height, $inserter_type, $inserter_id);
 }
 
@@ -1168,7 +1168,7 @@ procedure migrate_delegates($dbid text) public owner {
 
 procedure all_internal_grants_as_owner() public view owner returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
     data_id uuid, locked_until int, height int, inserter_type text, inserter_id text) {
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id FROM internal_access_grants;
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id FROM access_grants;
 }
 
 foreign procedure get_all_internal_grants() returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
@@ -1177,7 +1177,7 @@ foreign procedure get_all_internal_grants() returns table (id uuid, ag_owner_use
 procedure migrate_internal_grants($dbid text) public owner {
     for $row in SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id
         FROM get_all_internal_grants[$dbid, 'all_internal_grants_as_owner']() {
-        INSERT INTO internal_access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
+        INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
             VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.height, $row.inserter_type, $row.inserter_id);
     }
 }
