@@ -714,6 +714,7 @@ procedure get_credential_shared ($id uuid) public view returns table (
 
     for $int_ag_row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
         $int_ag_granted := true;
+        break;
     }
 
     // We only keep valid internal AGs. So, we only need to double-check the validity for external AGs.
@@ -897,7 +898,7 @@ procedure has_write_grant_given_by($user_id uuid) public view returns (has_given
 
 // INTERNAL ACCESS GRANTS ACTIONS
 
-procedure revoke_internal_access_grant ($id uuid) public {
+procedure revoke_access_grant ($id uuid) public {
     $iag_exist := false;
     for $row in SELECT 1 FROM access_grants WHERE id = $id
         AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
