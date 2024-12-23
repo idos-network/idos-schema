@@ -197,6 +197,14 @@ procedure get_user_as_inserter($id uuid) public view returns (id uuid, recipient
     }
 }
 
+procedure get_caller_user_id() private view returns (user_id uuid) {
+    for $row in SELECT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller) {
+        return $row.user_id;
+    }
+    error('no user found');
+}
+
 
 // WALLET ACTIONS
 
@@ -481,24 +489,12 @@ action share_credential (
     );
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
-    INSERT INTO access_grants (
-        id,
-        ag_owner_user_id,
-        ag_grantee_wallet_identifier,
-        data_id,
-        locked_until,
-        height,
-        inserter_type,
-        inserter_id
-    ) VALUES (
-        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $original_credential_id::text, $locked_until::text)),
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = @caller)
-        ),
+    create_access_grant(
+        $original_credential_id,
+        get_caller_user_id(),
         $grantee_wallet_identifier,
         $id,
         $locked_until::int,
-        @height,
         'user',
         @caller
     );
@@ -569,22 +565,12 @@ action share_credential_through_dag (
 
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
-    INSERT INTO access_grants (
-        id,
-        ag_owner_user_id,
-        ag_grantee_wallet_identifier,
-        data_id,
-        locked_until,
-        height,
-        inserter_type,
-        inserter_id
-    ) VALUES (
-        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $dag_grantee_wallet_identifier::text, $original_credential_id::text, $dag_locked_until::text)),
+    create_access_grant(
+        $original_credential_id,
         $user_id,
         $dag_grantee_wallet_identifier,
         $id,
         $dag_locked_until::int,
-        @height,
         'dag_message',
         @caller
     );
@@ -644,6 +630,26 @@ action share_credential_by_write_grant (
 
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
+    create_access_grant(
+        $original_credential_id,
+        $user_id,
+        $grantee_wallet_identifier,
+        $id,
+        $locked_until::int,
+        'write_grant',
+        get_write_grant_id($user_id)::text
+    );
+}
+
+action create_access_grant(
+    $original_credential_id,
+    $user_id,
+    $grantee_wallet_identifier,
+    $data_id,
+    $locked_until,
+    $inserter_type,
+    $inserter_id
+) private {
     INSERT INTO access_grants (
         id,
         ag_owner_user_id,
@@ -654,14 +660,14 @@ action share_credential_by_write_grant (
         inserter_type,
         inserter_id
     ) VALUES (
-        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $original_credential_id::text, $locked_until::text)),
+        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier, $original_credential_id::text, $locked_until::text)),
         $user_id,
         $grantee_wallet_identifier,
-        $id,
+        $data_id,
         $locked_until::int,
         @height,
-        'write_grant',
-        get_write_grant_id($user_id)::text
+        $inserter_type,
+        $inserter_id
     );
 }
 
