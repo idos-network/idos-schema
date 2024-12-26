@@ -1259,20 +1259,8 @@ procedure migrate_ext_grants_as_owner(
         return;
     }
 
-    // There can be copy is exists and shared, but original credential was deleted.
-    // In this case, as original credential id is used for determining AG's is, we will set credential `id` as id of external AG
-    $original_credential_id text := '';
-    for $row2 in SELECT original_id FROM shared_credentials WHERE copy_id = $data_id {
-        $original_credential_id := $row2.original_id::text;
-    }
-
-    $id_for_creation uuid := $id;
-    if $original_credential_id != '' {
-        $id_for_creation := $original_credential_id::uuid;
-    }
-
     create_access_grant(
-        $id_for_creation,
+        $id,
         $user_id::uuid,
         $ag_grantee,
         $data_id,
