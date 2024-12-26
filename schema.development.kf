@@ -1278,6 +1278,6 @@ procedure migrate_ext_grants_as_owner(
         $data_id,
         $locked_until,
         'external_grant',
-        'owner'
+        format('%s:%s', $ag_chain, $tx_hash)
     );
 }
