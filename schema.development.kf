@@ -97,7 +97,8 @@ table access_grants {
     ag_grantee_wallet_identifier text notnull,
     data_id uuid notnull,
     locked_until int notnull default(0),
-    height int notnull default(1), // TODO: We should remove `defalut` in the next migration
+    height int notnull,
+    hash text,
     inserter_type text notnull,
     inserter_id text notnull,
     foreign_key (ag_owner_user_id) references users(id) on_delete cascade,
@@ -923,8 +924,8 @@ procedure revoke_access_grant ($id uuid) public {
 
 @kgw(authn='true')
 procedure get_access_grants_owned () public view returns table (id uuid, ag_owner_user_id uuid,
-    ag_grantee_wallet_identifier text, data_id uuid, locked_until int, inserter_type text, inserter_id text) {
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, inserter_type, inserter_id FROM access_grants
+    ag_grantee_wallet_identifier text, data_id uuid, locked_until int, hash text, inserter_type text, inserter_id text) {
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, hash, inserter_type, inserter_id FROM access_grants
         WHERE ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller));
 }
@@ -934,7 +935,7 @@ procedure get_access_grants_owned () public view returns table (id uuid, ag_owne
 // Ordering is consistent because we use height as first odering parameter
 @kgw(authn='true')
 procedure get_access_grants_granted ($page int, $size int) public view returns table (id uuid, ag_owner_user_id uuid,
-    ag_grantee_wallet_identifier text, data_id uuid, locked_until int) {
+    ag_grantee_wallet_identifier text, data_id uuid, locked_until int, hash text, inserter_type text, inserter_id text) {
     $index int := 0;
     if $page < 1 {
         error('page has to be a positive integer');
@@ -951,7 +952,7 @@ procedure get_access_grants_granted ($page int, $size int) public view returns t
 
     $offset int := $index * $limit;
 
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until FROM access_grants
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, hash, inserter_type, inserter_id FROM access_grants
         WHERE ag_grantee_wallet_identifier =  @caller ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
 }
 
@@ -1034,9 +1035,9 @@ procedure insert_shared_attr_as_owner($original_id uuid, $copy_id uuid) owner pu
 // configs: upsert_config_as_owner
 
 procedure insert_access_grants_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee_wallet_identifier text, $data_id uuid,
-    $locked_until int, $height int, $inserter_type text, $inserter_id text) owner public {
-    INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
-    VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $height, $inserter_type, $inserter_id);
+    $locked_until int, $hash text, $height int, $inserter_type text, $inserter_id text) owner public {
+    INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, hash, height, inserter_type, inserter_id)
+    VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $hash, $height, $inserter_type, $inserter_id);
 }
 
 procedure insert_write_grants_as_owner($id uuid, $wg_owner_wallet_identifier text, $wg_grantee_wallet_identifier text, $wg_owner_user_id uuid) owner public {
@@ -1174,18 +1175,18 @@ procedure migrate_delegates($dbid text) public owner {
 }
 
 procedure all_access_grants_as_owner() public view owner returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
-    data_id uuid, locked_until int, height int, inserter_type text, inserter_id text) {
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id FROM access_grants;
+    data_id uuid, locked_until int, hash text, height int, inserter_type text, inserter_id text) {
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, hash, height, inserter_type, inserter_id FROM access_grants;
 }
 
 foreign procedure get_all_access_grants() returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
-    data_id uuid, locked_until int, height int, inserter_type text, inserter_id text)
+    data_id uuid, locked_until int, hash text, height int, inserter_type text, inserter_id text)
 
 procedure migrate_access_grants($dbid text) public owner {
-    for $row in SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id
+    for $row in SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, hash, height, inserter_type, inserter_id
         FROM get_all_access_grants[$dbid, 'all_access_grants_as_owner']() {
-        INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
-            VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.height, $row.inserter_type, $row.inserter_id);
+        INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, hash, height, inserter_type, inserter_id)
+            VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.hash, $row.height, $row.inserter_type, $row.inserter_id);
     }
 }
 
