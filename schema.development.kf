@@ -986,6 +986,25 @@ action has_profile($address) public view {
     ) AS has_profile;
 }
 
+procedure passporting_dag_message(
+    $dag_owner_wallet_identifier text,
+    $dag_grantee_wallet_identifier text,
+    $dag_data_id uuid,
+    $dag_locked_until int,
+    $dag_hash text
+) public view returns (message text) {
+    $message text := format(
+        'operation: insertAccessGrant\nowner: %s\ngrantee: %s\ndataId: %s\nlockedUntil: %d\ncontentHash: %s',
+        $dag_owner_wallet_identifier,
+        $dag_grantee_wallet_identifier,
+        $dag_data_id,
+        $dag_locked_until,
+        $dag_hash
+    );
+
+    return $message;
+}
+
 
 // OWNER ACTIONS FOR MANUAL MIGRATIONS
 
