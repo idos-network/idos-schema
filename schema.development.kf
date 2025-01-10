@@ -97,8 +97,8 @@ table access_grants {
     ag_grantee_wallet_identifier text notnull,
     data_id uuid notnull,
     locked_until int notnull default(0),
-    height int notnull,
     hash text,
+    height int notnull,
     inserter_type text notnull,
     inserter_id text notnull,
     foreign_key (ag_owner_user_id) references users(id) on_delete cascade,
@@ -491,14 +491,43 @@ action share_credential (
 
     // SELECT is just a strange way of calling a procedure from an action
     SELECT create_access_grant(
-        $original_credential_id,
-        get_caller_user_id(),
         $grantee_wallet_identifier,
         $id,
         $locked_until::int,
+        null,
         'user',
         @caller
     );
+}
+
+action share_credential_without_ag(
+$id
+, $original_credential_id
+, $public_notes
+, $public_notes_signature
+, $broader_signature
+, $content
+, $encryptor_public_key
+, $issuer_auth_public_key
+) public {
+    SELECT CASE WHEN NOT credential_belongs_to_caller($original_credential_id) THEN
+        error('The original credential does not belong to the caller')
+    END;
+
+    SELECT CASE WHEN $public_notes != '' THEN
+        error('shared credentials cannot have public_notes, it must be an empty string')
+    END;
+
+    add_credential(
+        $id
+        , $issuer_auth_public_key
+        , $encryptor_public_key
+        , $content
+        , $public_notes
+        , $public_notes_signature
+        , $broader_signature
+    );
+    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 }
 
 // It can be used with EVM-compatible signatures only
@@ -526,7 +555,7 @@ action share_credential_through_dag (
     END;
 
     // This works for EVM-compatible signatures only
-    $owner_verified = idos.verify_owner($dag_owner_wallet_identifier, $dag_grantee_wallet_identifier, $id, $dag_locked_until, $dag_signature);
+    $owner_verified = idos.verify_owner_without_hash($dag_owner_wallet_identifier, $dag_grantee_wallet_identifier, $id, $dag_locked_until, $dag_signature);
     SELECT CASE WHEN $owner_verified != 1 THEN
         error('the dag_signature is invalid')
     END;
@@ -568,11 +597,10 @@ action share_credential_through_dag (
 
     // SELECT is just a strange way of calling a procedure from an action
     SELECT create_access_grant(
-        $original_credential_id,
-        $user_id,
         $dag_grantee_wallet_identifier,
         $id,
         $dag_locked_until::int,
+        null,
         'dag_message',
         @caller
     );
@@ -634,46 +662,13 @@ action share_credential_by_write_grant (
 
     // SELECT is just a strange way of calling a procedure from an action
     SELECT create_access_grant(
-        $original_credential_id,
-        $user_id,
         $grantee_wallet_identifier,
         $id,
         $locked_until::int,
+        null, // Do we need to require `hash` of the content for share_credential_by_write_grant action also?
         'write_grant',
         get_write_grant_id($user_id)::text
     );
-}
-
-procedure create_access_grant(
-    $original_credential_id uuid,
-    $user_id uuid,
-    $grantee_wallet_identifier text,
-    $data_id uuid,
-    $locked_until int,
-    $inserter_type text,
-    $inserter_id text
-) private returns (bool) {
-    INSERT INTO access_grants (
-        id,
-        ag_owner_user_id,
-        ag_grantee_wallet_identifier,
-        data_id,
-        locked_until,
-        height,
-        inserter_type,
-        inserter_id
-    ) VALUES (
-        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier, $original_credential_id::text, $locked_until::text)),
-        $user_id,
-        $grantee_wallet_identifier,
-        $data_id,
-        $locked_until,
-        @height,
-        $inserter_type,
-        $inserter_id
-    );
-
-    return true; // As this procedure can be called from an action (in SELECT), we have to return a value
 }
 
 @kgw(authn='true')
@@ -975,6 +970,118 @@ procedure has_locked_access_grants($id uuid) public view returns (has bool) {
     return false;
 }
 
+action dag_message(
+    $dag_owner_wallet_identifier,
+    $dag_grantee_wallet_identifier,
+    $dag_data_id,
+    $dag_locked_until,
+    $dag_content_hash
+) public view {
+    $message = idos.dag_message(
+        $dag_owner_wallet_identifier,
+        $dag_grantee_wallet_identifier,
+        $dag_data_id,
+        $dag_locked_until,
+        $dag_content_hash
+    );
+
+    SELECT $message;
+}
+
+action create_access_grant_by_dag(
+    $dag_owner_wallet_identifier,
+    $dag_grantee_wallet_identifier,
+    $dag_data_id,
+    $dag_locked_until,
+    $dag_content_hash,
+    $dag_signature
+) public {
+    // This works for EVM-compatible signatures only
+    $owner_verified = idos.verify_owner(
+        $dag_owner_wallet_identifier,
+        $dag_grantee_wallet_identifier,
+        $dag_data_id,
+        $dag_locked_until,
+        $dag_content_hash,
+        $dag_signature
+        );
+    SELECT CASE WHEN $owner_verified != 1 THEN
+        error('the dag_signature is invalid')
+    END;
+
+    SELECT CASE WHEN NOT EXISTS (
+        SELECT 1 from credentials
+            INNER JOIN wallets ON credentials.user_id = wallets.user_id
+            WHERE credentials.id = $dag_data_id
+            AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE
+            AND wallets.wallet_type = 'EVM'
+    ) THEN
+        error('the data_id does not belong to the owner')
+    END;
+
+    SELECT create_access_grant(
+        $dag_grantee_wallet_identifier,
+        $dag_data_id,
+        $dag_locked_until::int,
+        $dag_content_hash,
+        'dag_message',
+        @caller
+    );
+}
+
+procedure create_access_grant(
+    $grantee_wallet_identifier text,
+    $data_id uuid,
+    $locked_until int,
+    $content_hash text,
+    $inserter_type text,
+    $inserter_id text
+) private returns (bool) {
+    $user_id text := '';
+    for $row in SELECT user_id from credentials WHERE id = $data_id {
+        $user_id := $row.user_id::text;
+        break;
+    }
+    // data_id is an id of a copy. It always has a user. So if no user found then there is no credential found.
+    if $user_id == '' {
+        error('the credential, that the AG is for, does not exist');
+    }
+
+    $original_credential_id text := '';
+    for $row2 in SELECT original_id from shared_credentials WHERE copy_id = $data_id {
+        $original_credential_id := $row2.original_id::text;
+        break;
+    }
+    // If there is no original credential exist anymore, then we use copy_id as original_credential_id for AG id generation
+    // https://www.notion.so/idos-association/Scenarios-of-bloating-credentials-17788c585fe080358158e9b800fe6eb3?pvs=4
+    if $original_credential_id == '' {
+        $original_credential_id := $data_id::text;
+    }
+
+    INSERT INTO access_grants (
+        id,
+        ag_owner_user_id,
+        ag_grantee_wallet_identifier,
+        data_id,
+        locked_until,
+        hash,
+        height,
+        inserter_type,
+        inserter_id
+    ) VALUES (
+        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier, $original_credential_id, $locked_until::text)),
+        $user_id::uuid,
+        $grantee_wallet_identifier,
+        $data_id,
+        $locked_until,
+        $content_hash,
+        @height,
+        $inserter_type,
+        $inserter_id
+    );
+
+    return true; // As this procedure can be called from an action (in SELECT), we have to return a value
+}
 
 // OTHER ACTIONS
 
@@ -984,25 +1091,6 @@ action has_profile($address) public view {
     SELECT EXISTS (
         SELECT 1 FROM wallets WHERE address=$address COLLATE NOCASE
     ) AS has_profile;
-}
-
-procedure passporting_dag_message(
-    $dag_owner_wallet_identifier text,
-    $dag_grantee_wallet_identifier text,
-    $dag_data_id uuid,
-    $dag_locked_until int,
-    $dag_hash text
-) public view returns (message text) {
-    $message text := format(
-        'operation: insertAccessGrant\nowner: %s\ngrantee: %s\ndataId: %s\nlockedUntil: %d\ncontentHash: %s',
-        $dag_owner_wallet_identifier,
-        $dag_grantee_wallet_identifier,
-        $dag_data_id,
-        $dag_locked_until,
-        $dag_hash
-    );
-
-    return $message;
 }
 
 
@@ -1251,41 +1339,4 @@ procedure migrate_all_data($old_dbid text) public owner {
     migrate_write_grants($old_dbid); // WGs must be inserted before access grants
     migrate_access_grants($old_dbid);
     migrate_configs($old_dbid);
-}
-
-procedure migrate_ext_grants_as_owner(
-    $id uuid,
-    $ag_owner text,
-    $ag_grantee text,
-    $data_id uuid,
-    $locked_until int,
-    $ag_chain text,
-    $tx_hash text,
-    $block_hash text,
-    $height int,
-    $status text
-) public owner {
-    // We don't need to insert non valid AGs
-    if $status != 'valid' {
-        return;
-    }
-
-    // Deleting credentials or even users, don't trigger removal external AGs from DB. So we need to check the user still exists.
-    $user_id text := '';
-    for $row in SELECT user_id FROM credentials WHERE id = $data_id {
-        $user_id := $row.user_id::text;
-    }
-    if $user_id == '' {
-        return;
-    }
-
-    create_access_grant(
-        $id,
-        $user_id::uuid,
-        $ag_grantee,
-        $data_id,
-        $locked_until,
-        'external_grant',
-        format('%s:%s', $ag_chain, $tx_hash)
-    );
 }
