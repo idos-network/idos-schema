@@ -1337,15 +1337,15 @@ procedure migrate_configs($dbid text) public owner {
 
 // The sequence of inserting of tables is important
 procedure migrate_all_data($old_dbid text) public owner {
+    migrate_configs($old_dbid);
+    migrate_inserters($old_dbid);
+    migrate_delegates($old_dbid);
     migrate_users($old_dbid);
     migrate_wallets($old_dbid);
     migrate_credentials($old_dbid);
     migrate_shared_credentials($old_dbid);
     migrate_user_attributes($old_dbid);
     migrate_shared_user_attrs($old_dbid);
-    migrate_inserters($old_dbid);
-    migrate_delegates($old_dbid);
     migrate_write_grants($old_dbid); // WGs must be inserted before access grants
     migrate_access_grants($old_dbid);
-    migrate_configs($old_dbid);
 }
