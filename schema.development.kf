@@ -511,7 +511,7 @@ $id
 , $issuer_auth_public_key
 ) public {
     SELECT CASE WHEN NOT credential_belongs_to_caller($original_credential_id) THEN
-        error('The original credential does not belong to the caller')
+        error('the original credential does not belong to the caller')
     END;
 
     SELECT CASE WHEN $public_notes != '' THEN
