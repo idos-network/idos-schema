@@ -731,7 +731,7 @@ procedure get_credential_shared ($id uuid) public view returns table (
 }
 
 @kgw(authn='true')
-procedure get_sibling_credential_id ($content_hash text) public view returns (uuid) {
+procedure get_sibling_credential_id ($content_hash text) public view returns (id uuid) {
     for $row in SELECT c.id FROM credentials as c INNER JOIN access_grants as ag ON c.id = ag.data_id
         WHERE ag.content_hash = $content_hash AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
             return $row.id;
@@ -994,7 +994,7 @@ action dag_message(
         $dag_content_hash
     );
 
-    SELECT $message;
+    SELECT $message as message;
 }
 
 action create_access_grant_by_dag(
@@ -1090,6 +1090,20 @@ procedure create_access_grant(
     );
 
     return true; // As this procedure can be called from an action (in SELECT), we have to return a value
+}
+
+@kgw(authn='true')
+procedure get_access_grants_for_credential($credential_id uuid) public view returns table(
+    id uuid,
+    ag_owner_user_id uuid,
+    ag_grantee_wallet_identifier text,
+    data_id uuid,
+    locked_until int,
+    content_hash text,
+    inserter_type text,
+    inserter_id text) {
+        return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id
+            FROM access_grants WHERE data_id = $credential_id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
 }
 
 // OTHER ACTIONS
