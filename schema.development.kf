@@ -957,13 +957,13 @@ procedure get_access_grants_granted ($page int, $size int) public view returns t
     $offset int := $index * $limit;
 
     return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id FROM access_grants
-        WHERE ag_grantee_wallet_identifier =  @caller ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
+        WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
 }
 
 @kgw(authn='true')
 procedure get_access_grants_granted_count () public view returns table(count int) {
     return SELECT COUNT(1) as count FROM access_grants
-        WHERE ag_grantee_wallet_identifier =  @caller;
+        WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE;
 }
 
 @kgw(authn='true')
