@@ -403,9 +403,8 @@ procedure get_credentials_shared_by_user($user_id uuid) public view returns tabl
     public_notes text,
     encryptor_public_key text,
     issuer_auth_public_key text,
-    inserter text,
-    original_id uuid) {
-    SELECT DISTINCT c.id, c.user_id, c.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
+    inserter text) {
+    SELECT DISTINCT c.id, c.user_id, c.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter AS original_id
     FROM credentials AS c
     INNER JOIN access_grants as ag ON c.id = ag.data_id
     INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
