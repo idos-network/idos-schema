@@ -405,10 +405,11 @@ procedure get_credentials_shared_by_user($user_id uuid) public view returns tabl
     issuer_auth_public_key text,
     inserter text,
     original_id uuid) {
-    return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
+    return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
         FROM credentials AS c
         INNER JOIN access_grants as ag ON c.id = ag.data_id
         INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
+        INNER JOIN credentials as oc ON oc.id = sc.original_id
         WHERE c.user_id = $user_id
             AND ag.ag_grantee_wallet_identifier = @caller;
 }
