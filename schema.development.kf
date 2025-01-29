@@ -518,7 +518,7 @@ action share_credential (
     );
 }
 
-action share_credential_without_ag(
+action create_credential_duplicate(
 $id
 , $original_credential_id
 , $public_notes
