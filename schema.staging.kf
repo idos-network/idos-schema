@@ -740,7 +740,7 @@ procedure get_credential_shared ($id uuid) public view returns table (
 
     $ag_granted bool := false;
 
-    for $int_ag_row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
+    for $int_ag_row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee_wallet_identifier = @caller {
         $ag_granted := true;
         break;
     }
@@ -765,7 +765,7 @@ procedure get_credential_shared ($id uuid) public view returns table (
 @kgw(authn='true')
 procedure get_sibling_credential_id ($content_hash text) public view returns (id uuid) {
     for $row in SELECT c.id FROM credentials as c INNER JOIN access_grants as ag ON c.id = ag.data_id
-        WHERE ag.content_hash = $content_hash AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
+        WHERE ag.content_hash = $content_hash AND ag.ag_grantee_wallet_identifier = @caller {
             return $row.id;
         }
 }
@@ -896,13 +896,13 @@ procedure add_write_grant($wg_grantee_wallet_identifier text) public {
 
 procedure remove_write_grant($wg_grantee_wallet_identifier text) public {
     DELETE FROM write_grants
-        WHERE wg_grantee_wallet_identifier = $wg_grantee_wallet_identifier COLLATE NOCASE
+        WHERE wg_grantee_wallet_identifier = $wg_grantee_wallet_identifier
         AND wg_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller));
 }
 
 procedure get_write_grant_id($user_id uuid) private view returns (id uuid) {
-    for $row in SELECT id FROM write_grants WHERE wg_owner_user_id = $user_id AND wg_grantee_wallet_identifier = @caller COLLATE NOCASE LIMIT 1 {
+    for $row in SELECT id FROM write_grants WHERE wg_owner_user_id = $user_id AND wg_grantee_wallet_identifier = @caller LIMIT 1 {
         return $row.id;
     }
 
@@ -912,7 +912,7 @@ procedure get_write_grant_id($user_id uuid) private view returns (id uuid) {
 @kgw(authn='true')
 procedure has_write_grant_given_to($wg_grantee_wallet_identifier text) public view returns (has_given bool) {
     for $row in SELECT 1 FROM write_grants
-        WHERE wg_grantee_wallet_identifier = $wg_grantee_wallet_identifier COLLATE NOCASE
+        WHERE wg_grantee_wallet_identifier = $wg_grantee_wallet_identifier
         AND wg_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)) {
             return true;
@@ -924,7 +924,7 @@ procedure has_write_grant_given_to($wg_grantee_wallet_identifier text) public vi
 procedure has_write_grant_given_by($user_id uuid) public view returns (has_given bool) {
     for $row in SELECT 1 FROM write_grants
         WHERE wg_owner_user_id = $user_id
-        AND wg_grantee_wallet_identifier = @caller COLLATE NOCASE {
+        AND wg_grantee_wallet_identifier = @caller {
             return true;
         }
     return false;
@@ -989,13 +989,13 @@ procedure get_access_grants_granted ($page int, $size int) public view returns t
     $offset int := $index * $limit;
 
     return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id FROM access_grants
-        WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
+        WHERE ag_grantee_wallet_identifier =  @caller ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
 }
 
 @kgw(authn='true')
 procedure get_access_grants_granted_count () public view returns table(count int) {
     return SELECT COUNT(1) as count FROM access_grants
-        WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE;
+        WHERE ag_grantee_wallet_identifier =  @caller;
 }
 
 @kgw(authn='true')
@@ -1129,7 +1129,7 @@ procedure get_access_grants_for_credential($credential_id uuid) public view retu
     inserter_type text,
     inserter_id text) {
         return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id
-            FROM access_grants WHERE data_id = $credential_id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
+            FROM access_grants WHERE data_id = $credential_id AND ag_grantee_wallet_identifier = @caller;
 }
 
 // OTHER ACTIONS
