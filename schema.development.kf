@@ -531,7 +531,7 @@ action share_credential (
     );
 }
 
-action create_credential_duplicate(
+action create_credential_copy(
     $id,
     $original_credential_id,
     $public_notes,
