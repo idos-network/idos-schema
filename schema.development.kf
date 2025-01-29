@@ -215,6 +215,13 @@ action upsert_wallet_as_inserter($id, $user_id, $address, $public_key, $wallet_t
     $valid_public_key = idos.is_valid_public_key($public_key, $wallet_type);
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $valid_public_key != 1 THEN ERROR('Invalid or unsupported public key.') END;
 
+    SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM wallets WHERE $wallet_type = 'EVM' AND id != $id AND address = $address COLLATE NOCASE)
+        THEN error('this EVM wallet address already exists in idos')
+    WHEN EXISTS (SELECT 1 FROM wallets WHERE $wallet_type = 'NEAR' AND id != $id AND public_key = $public_key COLLATE NOCASE)
+        THEN error('this NEAR wallet public key already exists in idos')
+    END;
+
     INSERT INTO wallets (id, user_id, address, public_key, wallet_type, message, signature, inserter)
     VALUES ($id, $user_id, $address, $public_key, $wallet_type, $message, $signature, get_inserter())
     ON CONFLICT(id) DO UPDATE
@@ -233,6 +240,13 @@ action add_wallet($id, $address, $public_key, $message, $signature) public {
 
     $valid_public_key = idos.is_valid_public_key($public_key, $wallet_type);
     SELECT CASE WHEN $wallet_type = 'NEAR' AND $valid_public_key != 1 THEN ERROR('Invalid or unsupported public key.') END;
+
+    SELECT CASE
+        WHEN EXISTS (SELECT 1 FROM wallets WHERE $wallet_type = 'EVM' AND address = $address COLLATE NOCASE)
+            THEN error('this EVM wallet address already exists in idos')
+        WHEN EXISTS (SELECT 1 FROM wallets WHERE $wallet_type = 'NEAR' AND public_key = $public_key COLLATE NOCASE)
+            THEN error('this NEAR wallet public key already exists in idos')
+    END;
 
     INSERT INTO wallets (id, user_id, address, public_key, wallet_type, message, signature)
     VALUES (
