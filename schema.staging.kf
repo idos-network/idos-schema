@@ -97,13 +97,14 @@ table access_grants {
     ag_grantee_wallet_identifier text notnull,
     data_id uuid notnull,
     locked_until int notnull default(0),
-    height int notnull default(1), // TODO: We should remove `defalut` in the next migration
+    content_hash text,
+    height int notnull,
     inserter_type text notnull,
     inserter_id text notnull,
     foreign_key (ag_owner_user_id) references users(id) on_delete cascade,
-    #iag_data_id index(data_id),
-    #iag_ag_grantee_wallet_identifier index(ag_grantee_wallet_identifier),
-    #iag_ag_owner_user_id index(ag_owner_user_id)
+    #ag_data_id index(data_id),
+    #ag_grantee_content_hash index(ag_grantee_wallet_identifier, content_hash),
+    #ag_owner_user_id index(ag_owner_user_id)
 }
 
 table configs {
@@ -395,6 +396,24 @@ action get_credentials() public view {
     );
 }
 
+@kgw(authn='true')
+procedure get_credentials_shared_by_user($user_id uuid) public view returns table (
+    id uuid,
+    user_id uuid,
+    public_notes text,
+    encryptor_public_key text,
+    issuer_auth_public_key text,
+    inserter text,
+    original_id uuid) {
+    return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
+        FROM credentials AS c
+        INNER JOIN access_grants as ag ON c.id = ag.data_id
+        INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
+        INNER JOIN credentials as oc ON oc.id = sc.original_id
+        WHERE c.user_id = $user_id
+            AND ag.ag_grantee_wallet_identifier = @caller;
+}
+
 action edit_credential (
   $id
 , $public_notes
@@ -430,7 +449,7 @@ action edit_credential (
     );
 }
 
-// Be aware that @caller here is ed25519 public key, hexcoded.
+// Be aware that @caller here is ed25519 public key, hex encoded.
 // All other @caller in the schema are either secp256k1 or nep413
 // This action can't be called by kwil-cli (as kwil-cli uses secp256k1 only)
 procedure edit_public_notes_as_issuer($public_notes_id text, $public_notes text) public {
@@ -490,14 +509,43 @@ action share_credential (
 
     // SELECT is just a strange way of calling a procedure from an action
     SELECT create_access_grant(
-        $original_credential_id,
-        get_caller_user_id(),
         $grantee_wallet_identifier,
         $id,
         $locked_until::int,
+        null,
         'user',
         @caller
     );
+}
+
+action share_credential_without_ag(
+$id
+, $original_credential_id
+, $public_notes
+, $public_notes_signature
+, $broader_signature
+, $content
+, $encryptor_public_key
+, $issuer_auth_public_key
+) public {
+    SELECT CASE WHEN NOT credential_belongs_to_caller($original_credential_id) THEN
+        error('the original credential does not belong to the caller')
+    END;
+
+    SELECT CASE WHEN $public_notes != '' THEN
+        error('shared credentials cannot have public_notes, it must be an empty string')
+    END;
+
+    add_credential(
+        $id
+        , $issuer_auth_public_key
+        , $encryptor_public_key
+        , $content
+        , $public_notes
+        , $public_notes_signature
+        , $broader_signature
+    );
+    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 }
 
 // It can be used with EVM-compatible signatures only
@@ -525,7 +573,7 @@ action share_credential_through_dag (
     END;
 
     // This works for EVM-compatible signatures only
-    $owner_verified = idos.verify_owner($dag_owner_wallet_identifier, $dag_grantee_wallet_identifier, $id, $dag_locked_until, $dag_signature);
+    $owner_verified = idos.verify_owner_without_hash($dag_owner_wallet_identifier, $dag_grantee_wallet_identifier, $id, $dag_locked_until, $dag_signature);
     SELECT CASE WHEN $owner_verified != 1 THEN
         error('the dag_signature is invalid')
     END;
@@ -567,11 +615,10 @@ action share_credential_through_dag (
 
     // SELECT is just a strange way of calling a procedure from an action
     SELECT create_access_grant(
-        $original_credential_id,
-        $user_id,
         $dag_grantee_wallet_identifier,
         $id,
         $dag_locked_until::int,
+        null,
         'dag_message',
         @caller
     );
@@ -582,6 +629,7 @@ action share_credential_by_write_grant (
 , $user_id
 , $encryptor_public_key
 , $content
+, $content_hash
 , $public_notes
 , $public_notes_signature
 , $broader_signature
@@ -633,46 +681,13 @@ action share_credential_by_write_grant (
 
     // SELECT is just a strange way of calling a procedure from an action
     SELECT create_access_grant(
-        $original_credential_id,
-        $user_id,
         $grantee_wallet_identifier,
         $id,
         $locked_until::int,
+        $content_hash,
         'write_grant',
         get_write_grant_id($user_id)::text
     );
-}
-
-procedure create_access_grant(
-    $original_credential_id uuid,
-    $user_id uuid,
-    $grantee_wallet_identifier text,
-    $data_id uuid,
-    $locked_until int,
-    $inserter_type text,
-    $inserter_id text
-) private returns (bool) {
-    INSERT INTO access_grants (
-        id,
-        ag_owner_user_id,
-        ag_grantee_wallet_identifier,
-        data_id,
-        locked_until,
-        height,
-        inserter_type,
-        inserter_id
-    ) VALUES (
-        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier, $original_credential_id::text, $locked_until::text)),
-        $user_id,
-        $grantee_wallet_identifier,
-        $data_id,
-        $locked_until,
-        @height,
-        $inserter_type,
-        $inserter_id
-    );
-
-    return true; // As this procedure can be called from an action (in SELECT), we have to return a value
 }
 
 @kgw(authn='true')
@@ -733,6 +748,14 @@ procedure get_credential_shared ($id uuid) public view returns table (
     WHERE c.id = $id;
 }
 
+@kgw(authn='true')
+procedure get_sibling_credential_id ($content_hash text) public view returns (id uuid) {
+    for $row in SELECT c.id FROM credentials as c INNER JOIN access_grants as ag ON c.id = ag.data_id
+        WHERE ag.content_hash = $content_hash AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
+            return $row.id;
+        }
+}
+
 procedure credential_belongs_to_user($id uuid, $user_id uuid) private view returns (belongs bool) {
     for $row in SELECT 1 from credentials WHERE id = $id AND user_id = $user_id LIMIT 1 {
         return true;
@@ -768,7 +791,7 @@ procedure get_credential_inserter($id uuid) private view returns (inserter text)
 }
 
 
-// ATTRUBITE ACTIONS
+// ATTRIBUTE ACTIONS
 
 procedure add_attribute_as_inserter($id uuid, $user_id uuid, $attribute_key text, $value text) public {
     INSERT INTO user_attributes (id, user_id, attribute_key, value, inserter)
@@ -923,18 +946,18 @@ procedure revoke_access_grant ($id uuid) public {
 
 @kgw(authn='true')
 procedure get_access_grants_owned () public view returns table (id uuid, ag_owner_user_id uuid,
-    ag_grantee_wallet_identifier text, data_id uuid, locked_until int, inserter_type text, inserter_id text) {
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, inserter_type, inserter_id FROM access_grants
+    ag_grantee_wallet_identifier text, data_id uuid, locked_until int, content_hash text, inserter_type text, inserter_id text) {
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id FROM access_grants
         WHERE ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller));
 }
 
 // As arguments can be undefined (user can not send them at all), we have to have default values: page=1, size=20
 // Page number starts from 1, as UI usually shows to user in pagination element
-// Ordering is consistent because we use height as first odering parameter
+// Ordering is consistent because we use height as first ordering parameter
 @kgw(authn='true')
 procedure get_access_grants_granted ($page int, $size int) public view returns table (id uuid, ag_owner_user_id uuid,
-    ag_grantee_wallet_identifier text, data_id uuid, locked_until int) {
+    ag_grantee_wallet_identifier text, data_id uuid, locked_until int, content_hash text, inserter_type text, inserter_id text) {
     $index int := 0;
     if $page < 1 {
         error('page has to be a positive integer');
@@ -951,14 +974,14 @@ procedure get_access_grants_granted ($page int, $size int) public view returns t
 
     $offset int := $index * $limit;
 
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until FROM access_grants
-        WHERE ag_grantee_wallet_identifier =  @caller ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id FROM access_grants
+        WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
 }
 
 @kgw(authn='true')
 procedure get_access_grants_granted_count () public view returns table(count int) {
     return SELECT COUNT(1) as count FROM access_grants
-        WHERE ag_grantee_wallet_identifier =  @caller;
+        WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE;
 }
 
 @kgw(authn='true')
@@ -974,6 +997,137 @@ procedure has_locked_access_grants($id uuid) public view returns (has bool) {
     return false;
 }
 
+action dag_message(
+    $dag_owner_wallet_identifier,
+    $dag_grantee_wallet_identifier,
+    $dag_data_id,
+    $dag_locked_until,
+    $dag_content_hash
+) public view {
+    $message = idos.dag_message(
+        $dag_owner_wallet_identifier,
+        $dag_grantee_wallet_identifier,
+        $dag_data_id,
+        $dag_locked_until,
+        $dag_content_hash
+    );
+
+    SELECT $message as message;
+}
+
+action create_access_grant_by_dag(
+    $dag_owner_wallet_identifier,
+    $dag_grantee_wallet_identifier,
+    $dag_data_id,
+    $dag_locked_until,
+    $dag_content_hash,
+    $dag_signature
+) public {
+    // This works for EVM-compatible signatures only
+    $owner_verified = idos.verify_owner(
+        $dag_owner_wallet_identifier,
+        $dag_grantee_wallet_identifier,
+        $dag_data_id,
+        $dag_locked_until,
+        $dag_content_hash,
+        $dag_signature
+        );
+    SELECT CASE WHEN $owner_verified != 1 THEN
+        error('the dag_signature is invalid')
+    END;
+
+    SELECT CASE WHEN NOT EXISTS (
+        SELECT 1 from credentials
+            INNER JOIN wallets ON credentials.user_id = wallets.user_id
+            WHERE credentials.id = $dag_data_id
+            AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE
+            AND wallets.wallet_type = 'EVM'
+    ) THEN
+        error('the data_id does not belong to the owner')
+    END;
+
+    SELECT create_access_grant(
+        $dag_grantee_wallet_identifier,
+        $dag_data_id,
+        $dag_locked_until::int,
+        $dag_content_hash,
+        'dag_message',
+        @caller
+    );
+}
+
+procedure create_access_grant(
+    $grantee_wallet_identifier text,
+    $data_id uuid,
+    $locked_until int,
+    $content_hash text,
+    $inserter_type text,
+    $inserter_id text
+) private returns (bool) {
+    $user_id text := '';
+    for $row in SELECT user_id from credentials WHERE id = $data_id {
+        $user_id := $row.user_id::text;
+        break;
+    }
+    // data_id is an id of a copy. It always has a user. So if no user found then there is no credential found.
+    if $user_id == '' {
+        error('the credential, that the AG is for, does not exist');
+    }
+
+    $original_credential_id text := '';
+    for $row2 in SELECT original_id from shared_credentials WHERE copy_id = $data_id {
+        $original_credential_id := $row2.original_id::text;
+        break;
+    }
+    // If there is no original credential exist anymore, then we use copy_id as original_credential_id for AG id generation
+    // https://www.notion.so/idos-association/Scenarios-of-bloating-credentials-17788c585fe080358158e9b800fe6eb3?pvs=4
+    if $original_credential_id == '' {
+        $original_credential_id := $data_id::text;
+    }
+
+    for $row3 in SELECT 1 FROM access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier, $original_credential_id, $locked_until::text)) {
+        error('a grant with the same grantee, original_credential_id, and locked_until already exists');
+    }
+
+
+    INSERT INTO access_grants (
+        id,
+        ag_owner_user_id,
+        ag_grantee_wallet_identifier,
+        data_id,
+        locked_until,
+        content_hash,
+        height,
+        inserter_type,
+        inserter_id
+    ) VALUES (
+        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier, $original_credential_id, $locked_until::text)),
+        $user_id::uuid,
+        $grantee_wallet_identifier,
+        $data_id,
+        $locked_until,
+        $content_hash,
+        @height,
+        $inserter_type,
+        $inserter_id
+    );
+
+    return true; // As this procedure can be called from an action (in SELECT), we have to return a value
+}
+
+@kgw(authn='true')
+procedure get_access_grants_for_credential($credential_id uuid) public view returns table(
+    id uuid,
+    ag_owner_user_id uuid,
+    ag_grantee_wallet_identifier text,
+    data_id uuid,
+    locked_until int,
+    content_hash text,
+    inserter_type text,
+    inserter_id text) {
+        return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id
+            FROM access_grants WHERE data_id = $credential_id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
+}
 
 // OTHER ACTIONS
 
@@ -1034,9 +1188,9 @@ procedure insert_shared_attr_as_owner($original_id uuid, $copy_id uuid) owner pu
 // configs: upsert_config_as_owner
 
 procedure insert_access_grants_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee_wallet_identifier text, $data_id uuid,
-    $locked_until int, $height int, $inserter_type text, $inserter_id text) owner public {
-    INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
-    VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $height, $inserter_type, $inserter_id);
+    $locked_until int, $content_hash text, $height int, $inserter_type text, $inserter_id text) owner public {
+    INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, height, inserter_type, inserter_id)
+    VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $content_hash, $height, $inserter_type, $inserter_id);
 }
 
 procedure insert_write_grants_as_owner($id uuid, $wg_owner_wallet_identifier text, $wg_grantee_wallet_identifier text, $wg_owner_user_id uuid) owner public {
@@ -1174,18 +1328,18 @@ procedure migrate_delegates($dbid text) public owner {
 }
 
 procedure all_access_grants_as_owner() public view owner returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
-    data_id uuid, locked_until int, height int, inserter_type text, inserter_id text) {
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id FROM access_grants;
+    data_id uuid, locked_until int, content_hash text, height int, inserter_type text, inserter_id text) {
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, height, inserter_type, inserter_id FROM access_grants;
 }
 
 foreign procedure get_all_access_grants() returns table (id uuid, ag_owner_user_id uuid, ag_grantee_wallet_identifier text,
-    data_id uuid, locked_until int, height int, inserter_type text, inserter_id text)
+    data_id uuid, locked_until int, content_hash text, height int, inserter_type text, inserter_id text)
 
 procedure migrate_access_grants($dbid text) public owner {
-    for $row in SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id
+    for $row in SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, height, inserter_type, inserter_id
         FROM get_all_access_grants[$dbid, 'all_access_grants_as_owner']() {
-        INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, height, inserter_type, inserter_id)
-            VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.height, $row.inserter_type, $row.inserter_id);
+        INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, height, inserter_type, inserter_id)
+            VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.content_hash, $row.height, $row.inserter_type, $row.inserter_id);
     }
 }
 
@@ -1220,52 +1374,15 @@ procedure migrate_configs($dbid text) public owner {
 
 // The sequence of inserting of tables is important
 procedure migrate_all_data($old_dbid text) public owner {
+    migrate_configs($old_dbid);
+    migrate_inserters($old_dbid);
+    migrate_delegates($old_dbid);
     migrate_users($old_dbid);
     migrate_wallets($old_dbid);
     migrate_credentials($old_dbid);
     migrate_shared_credentials($old_dbid);
     migrate_user_attributes($old_dbid);
     migrate_shared_user_attrs($old_dbid);
-    migrate_inserters($old_dbid);
-    migrate_delegates($old_dbid);
     migrate_write_grants($old_dbid); // WGs must be inserted before access grants
     migrate_access_grants($old_dbid);
-    migrate_configs($old_dbid);
-}
-
-procedure migrate_ext_grants_as_owner(
-    $id uuid,
-    $ag_owner text,
-    $ag_grantee text,
-    $data_id uuid,
-    $locked_until int,
-    $ag_chain text,
-    $tx_hash text,
-    $block_hash text,
-    $height int,
-    $status text
-) public owner {
-    // We don't need to insert non valid AGs
-    if $status != 'valid' {
-        return;
-    }
-
-    // Deleting credentials or even users, don't trigger removal external AGs from DB. So we need to check the user still exists.
-    $user_id text := '';
-    for $row in SELECT user_id FROM credentials WHERE id = $data_id {
-        $user_id := $row.user_id::text;
-    }
-    if $user_id == '' {
-        return;
-    }
-
-    create_access_grant(
-        $id,
-        $user_id::uuid,
-        $ag_grantee,
-        $data_id,
-        $locked_until,
-        'external_grant',
-        format('%s:%s', $ag_chain, $tx_hash)
-    );
 }

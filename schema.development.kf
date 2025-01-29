@@ -410,6 +410,24 @@ action get_credentials() public view {
     );
 }
 
+@kgw(authn='true')
+procedure get_credentials_shared_by_user($user_id uuid) public view returns table (
+    id uuid,
+    user_id uuid,
+    public_notes text,
+    encryptor_public_key text,
+    issuer_auth_public_key text,
+    inserter text,
+    original_id uuid) {
+    return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
+        FROM credentials AS c
+        INNER JOIN access_grants as ag ON c.id = ag.data_id
+        INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
+        INNER JOIN credentials as oc ON oc.id = sc.original_id
+        WHERE c.user_id = $user_id
+            AND ag.ag_grantee_wallet_identifier = @caller;
+}
+
 action edit_credential (
   $id
 , $public_notes
@@ -445,7 +463,7 @@ action edit_credential (
     );
 }
 
-// Be aware that @caller here is ed25519 public key, hexcoded.
+// Be aware that @caller here is ed25519 public key, hex encoded.
 // All other @caller in the schema are either secp256k1 or nep413
 // This action can't be called by kwil-cli (as kwil-cli uses secp256k1 only)
 procedure edit_public_notes_as_issuer($public_notes_id text, $public_notes text) public {
@@ -787,7 +805,7 @@ procedure get_credential_inserter($id uuid) private view returns (inserter text)
 }
 
 
-// ATTRUBITE ACTIONS
+// ATTRIBUTE ACTIONS
 
 procedure add_attribute_as_inserter($id uuid, $user_id uuid, $attribute_key text, $value text) public {
     INSERT INTO user_attributes (id, user_id, attribute_key, value, inserter)
@@ -950,7 +968,7 @@ procedure get_access_grants_owned () public view returns table (id uuid, ag_owne
 
 // As arguments can be undefined (user can not send them at all), we have to have default values: page=1, size=20
 // Page number starts from 1, as UI usually shows to user in pagination element
-// Ordering is consistent because we use height as first odering parameter
+// Ordering is consistent because we use height as first ordering parameter
 @kgw(authn='true')
 procedure get_access_grants_granted ($page int, $size int) public view returns table (id uuid, ag_owner_user_id uuid,
     ag_grantee_wallet_identifier text, data_id uuid, locked_until int, content_hash text, inserter_type text, inserter_id text) {
