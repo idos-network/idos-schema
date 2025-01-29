@@ -652,7 +652,7 @@ action share_credential_by_write_grant (
         error('you can share only original credentials you created')
     END;
 
-    SELECT CASE WHEN (SELECT count(1) FROM access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $original_credential_id::text, $locked_until::text))) > 0 THEN
+    SELECT CASE WHEN (SELECT count(1) FROM access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $id::text, $locked_until::text))) > 0 THEN
         error('a grant with the same grantee, original_credential_id, and locked_until already exists')
     END;
 
@@ -1074,18 +1074,7 @@ procedure create_access_grant(
         error('the credential, that the AG is for, does not exist');
     }
 
-    $original_credential_id text := '';
-    for $row2 in SELECT original_id from shared_credentials WHERE copy_id = $data_id {
-        $original_credential_id := $row2.original_id::text;
-        break;
-    }
-    // If there is no original credential exist anymore, then we use copy_id as original_credential_id for AG id generation
-    // https://www.notion.so/idos-association/Scenarios-of-bloating-credentials-17788c585fe080358158e9b800fe6eb3?pvs=4
-    if $original_credential_id == '' {
-        $original_credential_id := $data_id::text;
-    }
-
-    for $row3 in SELECT 1 FROM access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier, $original_credential_id, $locked_until::text)) {
+    for $row3 in SELECT 1 FROM access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier, $data_id, $locked_until::text)) {
         error('a grant with the same grantee, original_credential_id, and locked_until already exists');
     }
 
@@ -1101,7 +1090,7 @@ procedure create_access_grant(
         inserter_type,
         inserter_id
     ) VALUES (
-        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier, $original_credential_id, $locked_until::text)),
+        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier, $data_id, $locked_until::text)),
         $user_id::uuid,
         $grantee_wallet_identifier,
         $data_id,
