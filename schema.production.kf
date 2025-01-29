@@ -1015,7 +1015,7 @@ action dag_message(
     SELECT $message as message;
 }
 
-action create_access_grant_by_dag(
+action create_ag_by_dag_for_copy(
     $dag_owner_wallet_identifier,
     $dag_grantee_wallet_identifier,
     $dag_data_id,
