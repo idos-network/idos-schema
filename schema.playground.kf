@@ -300,14 +300,14 @@ procedure remove_wallet($id uuid) public {
 // CREDENTIAL ACTIONS
 
 action upsert_credential_as_inserter (
-  $id
-, $user_id
-, $issuer_auth_public_key
-, $encryptor_public_key
-, $content
-, $public_notes
-, $public_notes_signature
-, $broader_signature
+    $id,
+    $user_id,
+    $issuer_auth_public_key,
+    $encryptor_public_key,
+    $content,
+    $public_notes,
+    $public_notes_signature,
+    $broader_signature
 ) public {
     SELECT get_inserter(); // throw an error if not authorized
 
@@ -328,24 +328,23 @@ action upsert_credential_as_inserter (
         get_inserter()
     )
     ON CONFLICT(id) DO UPDATE
-    SET user_id=$user_id
-        , verifiable_credential_id=(CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END)
-        , public_notes=$public_notes
-        , content=$content
-        , encryptor_public_key=$encryptor_public_key
-        , issuer_auth_public_key=$issuer_auth_public_key
-        , inserter=get_inserter()
-    ;
+    SET user_id=$user_id,
+        verifiable_credential_id=(CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END),
+        public_notes=$public_notes,
+        content=$content,
+        encryptor_public_key=$encryptor_public_key,
+        issuer_auth_public_key=$issuer_auth_public_key,
+        inserter=get_inserter();
 }
 
 action add_credential (
-  $id
-, $issuer_auth_public_key
-, $encryptor_public_key
-, $content
-, $public_notes
-, $public_notes_signature
-, $broader_signature
+    $id,
+    $issuer_auth_public_key,
+    $encryptor_public_key,
+    $content,
+    $public_notes,
+    $public_notes_signature,
+    $broader_signature
 ) public {
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
     SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
@@ -367,14 +366,14 @@ action add_credential (
 }
 
 action add_credential_by_write_grant (
-  $id
-, $user_id
-, $issuer_auth_public_key
-, $encryptor_public_key
-, $content
-, $public_notes
-, $public_notes_signature
-, $broader_signature
+    $id,
+    $user_id,
+    $issuer_auth_public_key,
+    $encryptor_public_key,
+    $content,
+    $public_notes,
+    $public_notes_signature,
+    $broader_signature
 ) public {
     SELECT get_write_grant_id($user_id); // throw an error if no write_grant
 
@@ -429,13 +428,13 @@ procedure get_credentials_shared_by_user($user_id uuid) public view returns tabl
 }
 
 action edit_credential (
-  $id
-, $public_notes
-, $public_notes_signature
-, $broader_signature
-, $content
-, $encryptor_public_key
-, $issuer_auth_public_key
+    $id,
+    $public_notes,
+    $public_notes_signature,
+    $broader_signature,
+    $content,
+    $encryptor_public_key,
+    $issuer_auth_public_key
 ) public {
     SELECT CASE
         WHEN EXISTS (
@@ -452,11 +451,11 @@ action edit_credential (
     $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
 
     UPDATE credentials
-    SET public_notes=$public_notes
-        , verifiable_credential_id = (CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END)
-        , content=$content
-        , encryptor_public_key=$encryptor_public_key
-        , issuer_auth_public_key=$issuer_auth_public_key
+    SET public_notes=$public_notes,
+        verifiable_credential_id = (CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END),
+        content=$content,
+        encryptor_public_key=$encryptor_public_key,
+        issuer_auth_public_key=$issuer_auth_public_key
     WHERE id=$id
     AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller)
@@ -491,16 +490,16 @@ procedure remove_credential($id uuid) public {
 
 // Do we need this action? Can share_credential_through_dag cover all cases?
 action share_credential (
-  $id
-, $original_credential_id
-, $public_notes
-, $public_notes_signature
-, $broader_signature
-, $content
-, $encryptor_public_key
-, $issuer_auth_public_key
-, $grantee_wallet_identifier
-, $locked_until
+    $id,
+    $original_credential_id,
+    $public_notes,
+    $public_notes_signature,
+    $broader_signature,
+    $content,
+    $encryptor_public_key,
+    $issuer_auth_public_key,
+    $grantee_wallet_identifier,
+    $locked_until
 ) public {
     SELECT CASE WHEN NOT credential_belongs_to_caller($original_credential_id) THEN
         error('The original credential does not belong to the caller')
@@ -511,13 +510,13 @@ action share_credential (
     END;
 
     add_credential(
-        $id
-      , $issuer_auth_public_key
-      , $encryptor_public_key
-      , $content
-      , $public_notes
-      , $public_notes_signature
-      , $broader_signature
+        $id,
+        $issuer_auth_public_key,
+        $encryptor_public_key,
+        $content,
+        $public_notes,
+        $public_notes_signature,
+        $broader_signature
     );
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
@@ -533,14 +532,14 @@ action share_credential (
 }
 
 action create_credential_duplicate(
-$id
-, $original_credential_id
-, $public_notes
-, $public_notes_signature
-, $broader_signature
-, $content
-, $encryptor_public_key
-, $issuer_auth_public_key
+    $id,
+    $original_credential_id,
+    $public_notes,
+    $public_notes_signature,
+    $broader_signature,
+    $content,
+    $encryptor_public_key,
+    $issuer_auth_public_key
 ) public {
     SELECT CASE WHEN NOT credential_belongs_to_caller($original_credential_id) THEN
         error('the original credential does not belong to the caller')
@@ -551,32 +550,32 @@ $id
     END;
 
     add_credential(
-        $id
-        , $issuer_auth_public_key
-        , $encryptor_public_key
-        , $content
-        , $public_notes
-        , $public_notes_signature
-        , $broader_signature
+        $id,
+        $issuer_auth_public_key,
+        $encryptor_public_key,
+        $content,
+        $public_notes,
+        $public_notes_signature,
+        $broader_signature
     );
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 }
 
 // It can be used with EVM-compatible signatures only
 action share_credential_through_dag (
-  $id
-, $user_id
-, $issuer_auth_public_key
-, $encryptor_public_key
-, $content
-, $public_notes
-, $public_notes_signature
-, $broader_signature
-, $original_credential_id
-, $dag_owner_wallet_identifier
-, $dag_grantee_wallet_identifier
-, $dag_locked_until
-, $dag_signature
+    $id,
+    $user_id,
+    $issuer_auth_public_key,
+    $encryptor_public_key,
+    $content,
+    $public_notes,
+    $public_notes_signature,
+    $broader_signature,
+    $original_credential_id,
+    $dag_owner_wallet_identifier,
+    $dag_grantee_wallet_identifier,
+    $dag_locked_until,
+    $dag_signature
 ) public {
     SELECT CASE WHEN NOT EXISTS (
         SELECT 1 from credentials
@@ -639,18 +638,18 @@ action share_credential_through_dag (
 }
 
 action share_credential_by_write_grant (
-  $id
-, $user_id
-, $encryptor_public_key
-, $content
-, $content_hash
-, $public_notes
-, $public_notes_signature
-, $broader_signature
-, $original_credential_id
-, $grantee_wallet_identifier
-, $locked_until
-, $issuer_auth_public_key
+    $id,
+    $user_id,
+    $encryptor_public_key,
+    $content,
+    $content_hash,
+    $public_notes,
+    $public_notes_signature,
+    $broader_signature,
+    $original_credential_id,
+    $grantee_wallet_identifier,
+    $locked_until,
+    $issuer_auth_public_key
 ) public {
     SELECT CASE WHEN $locked_until < 0 THEN
         error('locked_until must be positive integer timestamp or zero')
@@ -726,13 +725,13 @@ action get_credential_owned ($id) public view {
 // As a credential copy doesn't contain public notes, we return respective original credential public notes
 @kgw(authn='true')
 procedure get_credential_shared ($id uuid) public view returns table (
-  id uuid
-, user_id uuid
-, public_notes text
-, content text
-, encryptor_public_key text
-, issuer_auth_public_key text
-, inserter text
+    id uuid,
+    user_id uuid,
+    public_notes text,
+    content text,
+    encryptor_public_key text,
+    issuer_auth_public_key text,
+    inserter text
 ) {
     if !credential_exist($id) {
         error('the credential does not exist');
@@ -749,13 +748,7 @@ procedure get_credential_shared ($id uuid) public view returns table (
         error('the credential is not shared with the caller');
     }
 
-    return SELECT c.id
-    , c.user_id
-    , oc.public_notes
-    , c.content
-    , c.encryptor_public_key
-    , c.issuer_auth_public_key
-    , c.inserter
+    return SELECT c.id, c.user_id, oc.public_notes, c.content, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter
     FROM credentials AS c
     LEFT JOIN shared_credentials ON c.id = shared_credentials.copy_id
     LEFT JOIN credentials as oc ON shared_credentials.original_id = oc.id
@@ -1157,14 +1150,14 @@ procedure insert_wallet_as_owner($id uuid, $user_id uuid, $address text, $public
 }
 
 procedure insert_credential_as_owner (
-  $id uuid
-, $user_id uuid
-, $verifiable_credential_id text
-, $public_notes text
-, $content text
-, $encryptor_public_key text
-, $issuer_auth_public_key text
-, $inserter text
+    $id uuid,
+    $user_id uuid,
+    $verifiable_credential_id text,
+    $public_notes text,
+    $content text,
+    $encryptor_public_key text,
+    $issuer_auth_public_key text,
+    $inserter text
 ) owner public {
     INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES ($id, $user_id, $verifiable_credential_id, $public_notes, $content, $encryptor_public_key, $issuer_auth_public_key, $inserter);
@@ -1233,27 +1226,27 @@ procedure migrate_wallets($dbid text) public owner {
 
 
 procedure all_credentials_as_owner () public view owner returns table (
-  id uuid
-, user_id uuid
-, verifiable_credential_id text
-, public_notes text
-, content text
-, encryptor_public_key text
-, issuer_auth_public_key text
-, inserter text
+    id uuid,
+    user_id uuid,
+    verifiable_credential_id text,
+    public_notes text,
+    content text,
+    encryptor_public_key text,
+    issuer_auth_public_key text,
+    inserter text
 ) {
     return SELECT id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter FROM credentials;
 }
 
 foreign procedure get_all_credentials() returns table (
-  id uuid
-, user_id uuid
-, verifiable_credential_id text
-, public_notes text
-, content text
-, encryptor_public_key text
-, issuer_auth_public_key text
-, inserter text
+    id uuid,
+    user_id uuid,
+    verifiable_credential_id text,
+    public_notes text,
+    content text,
+    encryptor_public_key text,
+    issuer_auth_public_key text,
+    inserter text
 )
 
 procedure migrate_credentials($dbid text) public owner {
