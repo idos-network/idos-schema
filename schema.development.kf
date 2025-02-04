@@ -91,6 +91,16 @@ table write_grants {
     foreign_key (wg_owner_user_id) references users(id) on_delete cascade
 }
 
+table consumed_write_grants {
+    id uuid primary,
+    wg_owner_wallet_identifier text notnull, // user wallet/pk
+    wg_grantee_wallet_identifier text notnull, // issuer wallet/pk
+    original_credential_id uuid,
+    copy_credential_id uuid,
+    foreign_key (original_credential_id) references credentials(id) on_delete set null,
+    foreign_key (copy_credential_id) references credentials(id) on_delete set null
+}
+
 table access_grants {
     id uuid primary,
     ag_owner_user_id uuid notnull,
@@ -531,6 +541,7 @@ action share_credential (
     );
 }
 
+// Passporting scenario
 action create_credential_copy(
     $id,
     $original_credential_id,
@@ -701,6 +712,109 @@ action share_credential_by_write_grant (
         'write_grant',
         get_write_grant_id($user_id)::text
     );
+}
+
+action create_credentials_by_dwg(
+    $issuer_auth_public_key,
+    $encryptor_public_key,
+    $original_credential_id,
+    $original_content,
+    $original_public_notes,
+    $original_public_notes_signature,
+    $original_broader_signature,
+    $copy_credential_id,
+    $copy_content,
+    $copy_public_notes_signature, // Signature of an empty string?! This is wierd.
+    $copy_broader_signature,
+    $dwg_owner,
+    $dwg_id,
+    $dwg_not_before,
+    $dwg_not_after,
+    $dwg_signature) public {
+
+    SELECT CASE
+        WHEN NOT EXISTS (SELECT 1 FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $dwg_owner))
+        THEN ERROR('dwg_owner not found')
+    END;
+
+    $times_validation = idos.validate_not_usable_times($dwg_not_before, $dwg_not_after); // Check the format and precedence
+    SELECT CASE WHEN $times_validation != 1 THEN ERROR('dwg_not_before must be before dwg_not_after') END;
+
+    $dwg_result = idos.dwg_veryfy_owner($dwg_owner, @caller, $dwg_id, $dwg_not_before, $dwg_not_after, $dwg_signature);
+    SELECT CASE WHEN $dwg_result != 1 THEN error('verify_dwg_owner:' || $dwg_result) END;
+
+    $original_result = idos.assert_credential_signatures(
+        $issuer_auth_public_key,
+        $original_public_notes,
+        $original_public_notes_signature,
+        $original_content,
+        $original_broader_signature
+    );
+    SELECT CASE WHEN $original_result != 'ok' THEN
+        error('assert_original_credential_signatures:' || $original_result)
+    END;
+
+    $copy_result = idos.assert_credential_signatures(
+        $issuer_auth_public_key,
+        '',
+        $copy_public_notes_signature,
+        $copy_content,
+        $copy_broader_signature
+    );
+    SELECT CASE WHEN $copy_result != 'ok' THEN
+        error('assert_copy_credential_signatures:' || $copy_result)
+    END;
+
+    // Insert original credential
+    $verifiable_credential_id = idos.get_verifiable_credential_id($original_public_notes);
+
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
+    VALUES (
+        $original_credential_id,
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
+        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
+        $original_public_notes,
+        $original_content,
+        $encryptor_public_key,
+        $issuer_auth_public_key,
+        $dwg_id::text
+    );
+
+    // Insert copy credential
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
+    VALUES (
+        $copy_credential_id,
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
+        NULL,
+        '',
+        $copy_content,
+        $encryptor_public_key,
+        $issuer_auth_public_key,
+        $dwg_id::text
+    );
+
+    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $copy_credential_id);
+
+    // SELECT is just a strange way of calling a procedure from an action
+    SELECT create_access_grant(
+        @caller,
+        $copy_credential_id,
+        0,
+        NULL,
+        'delegated_write_grant',
+        $dwg_id::text
+    );
+
+    INSERT INTO consumed_write_grants (
+        id,
+        wg_owner_wallet_identifier,
+        wg_grantee_wallet_identifier,
+        original_credential_id,
+        copy_credential_id
+    ) VALUES ($dwg_id, $dwg_owner, @caller, $original_credential_id, $copy_credential_id);
 }
 
 @kgw(authn='true')
@@ -921,6 +1035,20 @@ procedure has_write_grant_given_by($user_id uuid) public view returns (has_given
             return true;
         }
     return false;
+}
+
+action dwg_message(
+    $owner_wallet_identifier,
+    $grantee_wallet_identifier,
+    $id,
+    $not_usable_before, // Has to be in YYYY-MM-DDTHH:mm:ss.sssZ format
+    $not_usable_after // Has to be in YYYY-MM-DDTHH:mm:ss.sssZ format
+) public view {
+    $result = idos.validate_not_usable_times($not_usable_before, $not_usable_after); // Check the format and precedence
+    SELECT CASE WHEN $result != 1 THEN ERROR('not_usable_before must be before not_usable_after') END;
+
+    $message = idos.dwg_message($owner_wallet_identifier, $grantee_wallet_identifier, $id, $not_usable_before, $not_usable_after);
+    SELECT $message as message;
 }
 
 
