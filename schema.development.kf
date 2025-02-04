@@ -375,36 +375,6 @@ action add_credential (
     );
 }
 
-action add_credential_by_write_grant (
-    $id,
-    $user_id,
-    $issuer_auth_public_key,
-    $encryptor_public_key,
-    $content,
-    $public_notes,
-    $public_notes_signature,
-    $broader_signature
-) public {
-    SELECT get_write_grant_id($user_id); // throw an error if no write_grant
-
-    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
-    SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
-
-    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
-
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
-    VALUES (
-        $id,
-        $user_id,
-        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
-        $public_notes,
-        $content,
-        $encryptor_public_key,
-        $issuer_auth_public_key,
-        get_write_grant_id($user_id)::text
-    );
-}
-
 // TODO: change to procedure
 @kgw(authn='true')
 action get_credentials() public view {
@@ -645,72 +615,6 @@ action share_credential_through_dag (
         null,
         'dag_message',
         @caller
-    );
-}
-
-action share_credential_by_write_grant (
-    $id,
-    $user_id,
-    $encryptor_public_key,
-    $content,
-    $content_hash,
-    $public_notes,
-    $public_notes_signature,
-    $broader_signature,
-    $original_credential_id,
-    $grantee_wallet_identifier,
-    $locked_until,
-    $issuer_auth_public_key
-) public {
-    SELECT CASE WHEN $locked_until < 0 THEN
-        error('locked_until must be positive integer timestamp or zero')
-    END;
-
-    SELECT get_write_grant_id($user_id); // throw an error if no write_grant
-
-    SELECT CASE WHEN NOT credential_belongs_to_user($original_credential_id, $user_id) THEN
-        error('the original credential does not belong to the user')
-    END;
-
-    SELECT CASE WHEN get_write_grant_id($user_id)::text != get_credential_inserter($original_credential_id) THEN
-        error('you can share only original credentials you created')
-    END;
-
-    SELECT CASE WHEN (SELECT count(1) FROM access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $id::text, $locked_until::text))) > 0 THEN
-        error('a grant with the same grantee, original_credential_id, and locked_until already exists')
-    END;
-
-    SELECT CASE WHEN $public_notes != '' THEN
-        error('shared credentials cannot have public_notes, it must be an empty string')
-    END;
-
-    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
-    SELECT CASE WHEN $result != 'ok' THEN error('assert_credential_signatures:' || $result) END;
-
-    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
-
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
-    VALUES (
-        $id,
-        $user_id,
-        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
-        $public_notes,
-        $content,
-        $encryptor_public_key,
-        $issuer_auth_public_key,
-        get_write_grant_id($user_id)::text
-    );
-
-    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
-
-    // SELECT is just a strange way of calling a procedure from an action
-    SELECT create_access_grant(
-        $grantee_wallet_identifier,
-        $id,
-        $locked_until::int,
-        $content_hash,
-        'write_grant',
-        get_write_grant_id($user_id)::text
     );
 }
 
@@ -989,53 +893,6 @@ procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key 
 
 
 // WRITE GRANTS ACTIONS
-
-procedure add_write_grant($wg_grantee_wallet_identifier text) public {
-    INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id) VALUES (
-        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s', @caller, $wg_grantee_wallet_identifier)),
-        @caller,
-        $wg_grantee_wallet_identifier,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = @caller)
-        )
-    );
-}
-
-procedure remove_write_grant($wg_grantee_wallet_identifier text) public {
-    DELETE FROM write_grants
-        WHERE wg_grantee_wallet_identifier = $wg_grantee_wallet_identifier COLLATE NOCASE
-        AND wg_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = @caller));
-}
-
-procedure get_write_grant_id($user_id uuid) private view returns (id uuid) {
-    for $row in SELECT id FROM write_grants WHERE wg_owner_user_id = $user_id AND wg_grantee_wallet_identifier = @caller COLLATE NOCASE LIMIT 1 {
-        return $row.id;
-    }
-
-    error('there is no write grant found');
-}
-
-@kgw(authn='true')
-procedure has_write_grant_given_to($wg_grantee_wallet_identifier text) public view returns (has_given bool) {
-    for $row in SELECT 1 FROM write_grants
-        WHERE wg_grantee_wallet_identifier = $wg_grantee_wallet_identifier COLLATE NOCASE
-        AND wg_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = @caller)) {
-            return true;
-        }
-    return false;
-}
-
-@kgw(authn='true')
-procedure has_write_grant_given_by($user_id uuid) public view returns (has_given bool) {
-    for $row in SELECT 1 FROM write_grants
-        WHERE wg_owner_user_id = $user_id
-        AND wg_grantee_wallet_identifier = @caller COLLATE NOCASE {
-            return true;
-        }
-    return false;
-}
 
 action dwg_message(
     $owner_wallet_identifier,
