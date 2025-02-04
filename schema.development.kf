@@ -628,7 +628,7 @@ action create_credentials_by_dwg(
     $original_broader_signature,
     $copy_credential_id,
     $copy_content,
-    $copy_public_notes_signature, // Signature of an empty string?! This is wierd.
+    $copy_public_notes_signature, // Signature of an empty string?! This is weird.
     $copy_broader_signature,
     $dwg_owner,
     $dwg_id,
@@ -645,7 +645,7 @@ action create_credentials_by_dwg(
     $times_validation = idos.validate_not_usable_times($dwg_not_before, $dwg_not_after); // Check the format and precedence
     SELECT CASE WHEN $times_validation != 1 THEN ERROR('dwg_not_before must be before dwg_not_after') END;
 
-    $dwg_result = idos.dwg_veryfy_owner($dwg_owner, @caller, $dwg_id, $dwg_not_before, $dwg_not_after, $dwg_signature);
+    $dwg_result = idos.dwg_verify_owner($dwg_owner, @caller, $dwg_id, $dwg_not_before, $dwg_not_after, $dwg_signature);
     SELECT CASE WHEN $dwg_result != 1 THEN error('verify_dwg_owner:' || $dwg_result) END;
 
     $original_result = idos.assert_credential_signatures(
