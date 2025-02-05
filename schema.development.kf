@@ -649,7 +649,7 @@ action create_credentials_by_dwg(
         THEN ERROR('dwg_owner not found')
     END;
 
-    idos.parseRfc3339($dwg_access_grant_timelock); // Will fail if not in the RFC3339 format
+    $ag_timelock = idos.parseRfc3339($dwg_access_grant_timelock); // Will fail if not in the RFC3339 format
     $times_validation = idos.validate_not_usable_times($dwg_not_before, $dwg_not_after); // Check the format and precedence
     SELECT CASE WHEN $times_validation != 1 THEN ERROR('dwg_not_before must be before dwg_not_after') END;
 
@@ -714,7 +714,7 @@ action create_credentials_by_dwg(
     SELECT create_access_grant(
         @caller,
         $copy_credential_id,
-        0,
+        $ag_timelock,
         NULL,
         'delegated_write_grant',
         $dwg_id::text
