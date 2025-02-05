@@ -631,11 +631,17 @@ action create_credentials_by_dwg(
     $copy_public_notes_signature, // Signature of an empty string?! This is weird.
     $copy_broader_signature,
     $dwg_owner,
+    $dwg_grantee,
     $dwg_id,
     $dwg_access_grant_timelock,
     $dwg_not_before,
     $dwg_not_after,
     $dwg_signature) public {
+
+    SELECT CASE
+        WHEN $issuer_auth_public_key != $dwg_grantee
+        THEN ERROR('credentials issuer must be a grantee of delegated write grant (issuer_auth_public_key = dwg_grantee)')
+    END;
 
     SELECT CASE
         WHEN NOT EXISTS (SELECT 1 FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
@@ -647,7 +653,7 @@ action create_credentials_by_dwg(
     $times_validation = idos.validate_not_usable_times($dwg_not_before, $dwg_not_after); // Check the format and precedence
     SELECT CASE WHEN $times_validation != 1 THEN ERROR('dwg_not_before must be before dwg_not_after') END;
 
-    $dwg_result = idos.dwg_verify_owner($dwg_owner, @caller, $dwg_id, $dwg_access_grant_timelock, $dwg_not_before, $dwg_not_after, $dwg_signature);
+    $dwg_result = idos.dwg_verify_owner($dwg_owner, $dwg_grantee, $dwg_id, $dwg_access_grant_timelock, $dwg_not_before, $dwg_not_after, $dwg_signature);
     SELECT CASE WHEN $dwg_result != 1 THEN error('verify_dwg_owner:' || $dwg_result) END;
 
     $original_result = idos.assert_credential_signatures(
