@@ -633,6 +633,7 @@ action create_credentials_by_dwg(
     $copy_content,
     $copy_public_notes_signature, // Signature of an empty string?! This is weird.
     $copy_broader_signature,
+    $content_hash, // For access grant
     $dwg_owner,
     $dwg_grantee,
     $dwg_id,
@@ -718,7 +719,7 @@ action create_credentials_by_dwg(
         @caller,
         $copy_credential_id,
         $ag_timelock,
-        NULL,
+        $content_hash,
         'delegated_write_grant',
         $dwg_id::text
     );
