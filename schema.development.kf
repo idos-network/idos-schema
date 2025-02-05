@@ -632,6 +632,7 @@ action create_credentials_by_dwg(
     $copy_broader_signature,
     $dwg_owner,
     $dwg_id,
+    $dwg_access_grant_timelock,
     $dwg_not_before,
     $dwg_not_after,
     $dwg_signature) public {
@@ -642,10 +643,11 @@ action create_credentials_by_dwg(
         THEN ERROR('dwg_owner not found')
     END;
 
+    idos.parseRfc3339($dwg_access_grant_timelock); // Will fail if not in the RFC3339 format
     $times_validation = idos.validate_not_usable_times($dwg_not_before, $dwg_not_after); // Check the format and precedence
     SELECT CASE WHEN $times_validation != 1 THEN ERROR('dwg_not_before must be before dwg_not_after') END;
 
-    $dwg_result = idos.dwg_verify_owner($dwg_owner, @caller, $dwg_id, $dwg_not_before, $dwg_not_after, $dwg_signature);
+    $dwg_result = idos.dwg_verify_owner($dwg_owner, @caller, $dwg_id, $dwg_access_grant_timelock, $dwg_not_before, $dwg_not_after, $dwg_signature);
     SELECT CASE WHEN $dwg_result != 1 THEN error('verify_dwg_owner:' || $dwg_result) END;
 
     $original_result = idos.assert_credential_signatures(
@@ -898,13 +900,15 @@ action dwg_message(
     $owner_wallet_identifier,
     $grantee_wallet_identifier,
     $id,
+    $access_grant_timelock, // Has to be in YYYY-MM-DDTHH:mm:ss.sssZ format
     $not_usable_before, // Has to be in YYYY-MM-DDTHH:mm:ss.sssZ format
     $not_usable_after // Has to be in YYYY-MM-DDTHH:mm:ss.sssZ format
 ) public view {
+    idos.parseRfc3339($access_grant_timelock); // Will fail if not in the RFC3339 format
     $result = idos.validate_not_usable_times($not_usable_before, $not_usable_after); // Check the format and precedence
     SELECT CASE WHEN $result != 1 THEN ERROR('not_usable_before must be before not_usable_after') END;
 
-    $message = idos.dwg_message($owner_wallet_identifier, $grantee_wallet_identifier, $id, $not_usable_before, $not_usable_after);
+    $message = idos.dwg_message($owner_wallet_identifier, $grantee_wallet_identifier, $id, $access_grant_timelock, $not_usable_before, $not_usable_after);
     SELECT $message as message;
 }
 
