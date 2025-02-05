@@ -93,10 +93,13 @@ table write_grants {
 
 table consumed_write_grants {
     id uuid primary,
-    wg_owner_wallet_identifier text notnull, // user wallet/pk
-    wg_grantee_wallet_identifier text notnull, // issuer wallet/pk
+    owner_wallet_identifier text notnull, // user wallet/pk
+    grantee_wallet_identifier text notnull, // issuer wallet/pk
     original_credential_id uuid,
     copy_credential_id uuid,
+    access_grant_timelock text,
+    not_usable_before text,
+    not_usable_after text,
     foreign_key (original_credential_id) references credentials(id) on_delete set null,
     foreign_key (copy_credential_id) references credentials(id) on_delete set null
 }
@@ -722,11 +725,23 @@ action create_credentials_by_dwg(
 
     INSERT INTO consumed_write_grants (
         id,
-        wg_owner_wallet_identifier,
-        wg_grantee_wallet_identifier,
+        owner_wallet_identifier,
+        grantee_wallet_identifier,
         original_credential_id,
-        copy_credential_id
-    ) VALUES ($dwg_id, $dwg_owner, @caller, $original_credential_id, $copy_credential_id);
+        copy_credential_id,
+        access_grant_timelock,
+        not_usable_before,
+        not_usable_after
+    ) VALUES (
+        $dwg_id,
+        $dwg_owner,
+        $dwg_grantee,
+        $original_credential_id,
+        $copy_credential_id,
+        $dwg_access_grant_timelock,
+        $dwg_not_before,
+        $dwg_not_after
+    );
 }
 
 @kgw(authn='true')
