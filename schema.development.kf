@@ -653,7 +653,7 @@ action create_credentials_by_dwg(
         THEN ERROR('dwg_owner not found')
     END;
 
-    $ag_timelock = idos.parseRfc3339($dwg_access_grant_timelock); // Will fail if not in the RFC3339 format
+    $ag_timelock = idos.parse_rfc3339($dwg_access_grant_timelock); // Will fail if not in the RFC3339 format
     $times_validation = idos.validate_not_usable_times($dwg_not_before, $dwg_not_after); // Check the format and precedence
     SELECT CASE WHEN $times_validation != 1 THEN ERROR('dwg_not_before must be before dwg_not_after') END;
 
@@ -926,7 +926,7 @@ action dwg_message(
     $not_usable_before, // Has to be in YYYY-MM-DDTHH:mm:ss.sssZ format
     $not_usable_after // Has to be in YYYY-MM-DDTHH:mm:ss.sssZ format
 ) public view {
-    idos.parseRfc3339($access_grant_timelock); // Will fail if not in the RFC3339 format
+    idos.parse_rfc3339($access_grant_timelock); // Will fail if not in the RFC3339 format
     $result = idos.validate_not_usable_times($not_usable_before, $not_usable_after); // Check the format and precedence
     SELECT CASE WHEN $result != 1 THEN ERROR('not_usable_before must be before not_usable_after') END;
 
