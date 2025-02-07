@@ -657,6 +657,12 @@ action create_credentials_by_dwg(
     $times_validation = idos.validate_not_usable_times($dwg_not_before, $dwg_not_after); // Check the format and precedence
     SELECT CASE WHEN $times_validation != 1 THEN ERROR('dwg_not_before must be before dwg_not_after') END;
 
+    // Check it current block timestamp in time range allowed by write grant
+    SELECT CASE WHEN parse_unix_timestamp($dwg_not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int > @block_timestamp
+        OR parse_unix_timestamp($dwg_not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int < @block_timestamp
+        THEN ERROR('this write grant can be used after dwg_not_before and before dwg_not_after')
+    END;
+
     $dwg_result = idos.dwg_verify_owner($dwg_owner, $dwg_grantee, $dwg_id, $dwg_access_grant_timelock, $dwg_not_before, $dwg_not_after, $dwg_signature);
     SELECT CASE WHEN $dwg_result != 1 THEN error('verify_dwg_owner:' || $dwg_result) END;
 
