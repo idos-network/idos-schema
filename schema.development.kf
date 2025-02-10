@@ -613,12 +613,13 @@ action share_credential_through_dag (
 
 action create_credentials_by_dwg(
     $issuer_auth_public_key,
-    $encryptor_public_key,
+    $original_encryptor_public_key,
     $original_credential_id,
     $original_content,
     $original_public_notes,
     $original_public_notes_signature,
     $original_broader_signature,
+    $copy_encryptor_public_key,
     $copy_credential_id,
     $copy_content,
     $copy_public_notes_signature, // Signature of an empty string?! This is weird.
@@ -692,7 +693,7 @@ action create_credentials_by_dwg(
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
         $original_public_notes,
         $original_content,
-        $encryptor_public_key,
+        $original_encryptor_public_key,
         $issuer_auth_public_key,
         $dwg_id::text
     );
@@ -706,7 +707,7 @@ action create_credentials_by_dwg(
         NULL,
         '',
         $copy_content,
-        $encryptor_public_key,
+        $copy_encryptor_public_key,
         $issuer_auth_public_key,
         $dwg_id::text
     );
