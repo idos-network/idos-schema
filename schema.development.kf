@@ -715,7 +715,7 @@ action create_credentials_by_dwg(
 
     // SELECT is just a strange way of calling a procedure from an action
     SELECT create_access_grant(
-        @caller,
+        $dwg_grantee,
         $copy_credential_id,
         $ag_timelock,
         $content_hash,
