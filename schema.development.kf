@@ -81,16 +81,6 @@ table delegates {
     foreign_key (inserter_id) references inserters(id) on_delete cascade
 }
 
-// A user gives a grant to write data (create a credential, share the credential) on his behalf to some issuer
-table write_grants {
-    id uuid primary,
-    wg_owner_wallet_identifier text notnull, // user wallet/pk
-    wg_grantee_wallet_identifier text notnull, // issuer wallet/pk
-    wg_owner_user_id uuid notnull, // user's id, to be sure we will find the user if the owner's wallet will be deleted
-    #write_grants_user_id_grantee unique(wg_owner_user_id, wg_grantee_wallet_identifier),
-    foreign_key (wg_owner_user_id) references users(id) on_delete cascade
-}
-
 table consumed_write_grants {
     id uuid primary,
     owner_wallet_identifier text notnull, // user wallet/pk
@@ -653,14 +643,17 @@ action create_credentials_by_dwg(
         THEN ERROR('dwg_owner not found')
     END;
 
-    $ag_timelock = idos.parse_rfc3339($dwg_access_grant_timelock); // Will fail if not in the RFC3339 format
+    $ag_timelock = idos.parse_date($dwg_access_grant_timelock); // Will fail if not in the RFC3339 format
     $times_validation = idos.validate_not_usable_times($dwg_not_before, $dwg_not_after); // Check the format and precedence
     SELECT CASE WHEN $times_validation != 1 THEN ERROR('dwg_not_before must be before dwg_not_after') END;
 
     // Check it current block timestamp in time range allowed by write grant
-    SELECT CASE WHEN parse_unix_timestamp($dwg_not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int > @block_timestamp
-        OR parse_unix_timestamp($dwg_not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int < @block_timestamp
-        THEN ERROR('this write grant can be used after dwg_not_before and before dwg_not_after')
+    SELECT CASE
+        WHEN NOT (
+            parse_unix_timestamp($dwg_not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int < @block_timestamp
+            AND @block_timestamp < parse_unix_timestamp($dwg_not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int
+        )
+        THEN ERROR('this write grant can only be used after dwg_not_before and before dwg_not_after')
     END;
 
     $dwg_result = idos.dwg_verify_owner($dwg_owner, $dwg_grantee, $dwg_id, $dwg_access_grant_timelock, $dwg_not_before, $dwg_not_after, $dwg_signature);
@@ -928,11 +921,11 @@ action dwg_message(
     $owner_wallet_identifier,
     $grantee_wallet_identifier,
     $id,
-    $access_grant_timelock, // Has to be in YYYY-MM-DDTHH:mm:ss.sssZ format
-    $not_usable_before, // Has to be in YYYY-MM-DDTHH:mm:ss.sssZ format
-    $not_usable_after // Has to be in YYYY-MM-DDTHH:mm:ss.sssZ format
+    $access_grant_timelock, // Must be in yyyy-mm-ddThh:mm:ssZ format
+    $not_usable_before, // Must be in yyyy-mm-ddThh:mm:ssZ format
+    $not_usable_after // Must be in yyyy-mm-ddThh:mm:ssZ format
 ) public view {
-    idos.parse_rfc3339($access_grant_timelock); // Will fail if not in the RFC3339 format
+    idos.parse_date($access_grant_timelock); // Will fail if not in the yyyy-mm-ddThh:mm:ssZ format, and not comply to RFC3339
     $result = idos.validate_not_usable_times($not_usable_before, $not_usable_after); // Check the format and precedence
     SELECT CASE WHEN $result != 1 THEN ERROR('not_usable_before must be before not_usable_after') END;
 
@@ -1206,11 +1199,6 @@ procedure insert_access_grants_as_owner($id uuid, $ag_owner_user_id uuid, $ag_gr
     VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $content_hash, $height, $inserter_type, $inserter_id);
 }
 
-procedure insert_write_grants_as_owner($id uuid, $wg_owner_wallet_identifier text, $wg_grantee_wallet_identifier text, $wg_owner_user_id uuid) owner public {
-    INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id)
-    VALUES ($id, $wg_owner_wallet_identifier, $wg_grantee_wallet_identifier, $wg_owner_user_id);
-}
-
 
 // ACTIONS FOR IN-SCHEMA DATA MIGRATION (OWNER)
 
@@ -1356,22 +1344,6 @@ procedure migrate_access_grants($dbid text) public owner {
     }
 }
 
-
-procedure all_write_grants_as_owner() public view owner returns table (id uuid, wg_owner_wallet_identifier text, wg_grantee_wallet_identifier text,
-    wg_owner_user_id uuid) {
-    return SELECT id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id FROM write_grants;
-}
-
-foreign procedure get_all_write_grants() returns table (id uuid, wg_owner_wallet_identifier text, wg_grantee_wallet_identifier text, wg_owner_user_id uuid)
-
-procedure migrate_write_grants($dbid text) public owner {
-    for $row in SELECT id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id FROM get_all_write_grants[$dbid, 'all_write_grants_as_owner']() {
-        INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id)
-            VALUES ($row.id, $row.wg_owner_wallet_identifier, $row.wg_grantee_wallet_identifier, $row.wg_owner_user_id);
-    }
-}
-
-
 procedure all_configs_as_owner() public view owner returns table (config_key text, value text) {
     return SELECT config_key, value FROM configs;
 }
@@ -1396,6 +1368,5 @@ procedure migrate_all_data($old_dbid text) public owner {
     migrate_shared_credentials($old_dbid);
     migrate_user_attributes($old_dbid);
     migrate_shared_user_attrs($old_dbid);
-    migrate_write_grants($old_dbid); // WGs must be inserted before access grants
     migrate_access_grants($old_dbid);
 }
