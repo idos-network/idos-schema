@@ -1204,11 +1204,19 @@ procedure insert_shared_attr_as_owner($original_id uuid, $copy_id uuid) owner pu
 // configs: upsert_config_as_owner
 
 procedure insert_access_grants_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee_wallet_identifier text, $data_id uuid,
-    $locked_until int, $content_hash text, $height int, $inserter_type text, $inserter_id text) owner public {
+$locked_until int, $content_hash text, $height int, $inserter_type text, $inserter_id text) owner public {
     INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, height, inserter_type, inserter_id)
     VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $content_hash, $height, $inserter_type, $inserter_id);
 }
 
+procedure insert_consumed_wgs_as_owner($id uuid, $owner_wallet_identifier text, $grantee_wallet_identifier text,
+$issuer_public_key text, $original_credential_id uuid, $copy_credential_id uuid, $access_grant_timelock text,
+$not_usable_before text, $not_usable_after text) owner public {
+    INSERT INTO consumed_write_grants (id, owner_wallet_identifier, grantee_wallet_identifier, issuer_public_key, original_credential_id,
+        copy_credential_id, access_grant_timelock, not_usable_before, not_usable_after)
+    VALUES ($id, $owner_wallet_identifier, $grantee_wallet_identifier, $issuer_public_key, $original_credential_id,
+        $copy_credential_id, $access_grant_timelock, $not_usable_before, $not_usable_after);
+}
 
 // ACTIONS FOR IN-SCHEMA DATA MIGRATION (OWNER)
 
@@ -1351,6 +1359,28 @@ procedure migrate_access_grants($dbid text) public owner {
         FROM get_all_access_grants[$dbid, 'all_access_grants_as_owner']() {
         INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, height, inserter_type, inserter_id)
             VALUES ($row.id, $row.ag_owner_user_id, $row.ag_grantee_wallet_identifier, $row.data_id, $row.locked_until, $row.content_hash, $row.height, $row.inserter_type, $row.inserter_id);
+    }
+}
+
+procedure all_consumed_wgs_as_owner() public view owner returns table (id uuid, owner_wallet_identifier text, grantee_wallet_identifier text,
+issuer_public_key text, original_credential_id uuid, copy_credential_id uuid, access_grant_timelock text,
+not_usable_before text, not_usable_after text) {
+    return SELECT id, owner_wallet_identifier, grantee_wallet_identifier, issuer_public_key, original_credential_id,
+    copy_credential_id, access_grant_timelock, not_usable_before, not_usable_after FROM consumed_write_grants;
+}
+
+foreign procedure get_all_consumed_wgs() returns table (id uuid, owner_wallet_identifier text, grantee_wallet_identifier text,
+    issuer_public_key text, original_credential_id uuid, copy_credential_id uuid, access_grant_timelock text,
+    not_usable_before text, not_usable_after text)
+
+procedure migrate_consumed_write_grants($dbid text) public owner {
+    for $row in SELECT id, owner_wallet_identifier, grantee_wallet_identifier, issuer_public_key, original_credential_id,
+            copy_credential_id, access_grant_timelock, not_usable_before, not_usable_after
+        FROM get_all_consumed_wgs[$dbid, 'all_consumed_wgs_as_owner']() {
+        INSERT INTO consumed_write_grants (id, owner_wallet_identifier, grantee_wallet_identifier, issuer_public_key, original_credential_id,
+            copy_credential_id, access_grant_timelock, not_usable_before, not_usable_after)
+        VALUES ($row.id, $row.owner_wallet_identifier, $row.grantee_wallet_identifier, $row.issuer_public_key, $row.original_credential_id,
+            $row.copy_credential_id, $row.access_grant_timelock, $row.not_usable_before, $row.not_usable_after);
     }
 }
 
