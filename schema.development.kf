@@ -84,7 +84,8 @@ table delegates {
 table consumed_write_grants {
     id uuid primary,
     owner_wallet_identifier text notnull, // user wallet/pk
-    grantee_wallet_identifier text notnull, // issuer wallet/pk
+    grantee_wallet_identifier text notnull, // grantee wallet/pk
+    issuer_public_key text notnull,
     original_credential_id uuid,
     copy_credential_id uuid,
     access_grant_timelock text,
@@ -627,14 +628,16 @@ action create_credentials_by_dwg(
     $content_hash, // For access grant
     $dwg_owner,
     $dwg_grantee,
+    $dwg_issuer_public_key,
     $dwg_id,
     $dwg_access_grant_timelock,
     $dwg_not_before,
     $dwg_not_after,
     $dwg_signature) public {
 
+    // Check the content creator (encryptor) is the issuer that user delegated to issue the credential
     SELECT CASE
-        WHEN $issuer_auth_public_key != $dwg_grantee
+        WHEN $issuer_auth_public_key != $dwg_issuer_public_key
         THEN ERROR('credentials issuer must be a grantee of delegated write grant (issuer_auth_public_key = dwg_grantee)')
     END;
 
@@ -660,7 +663,7 @@ action create_credentials_by_dwg(
         THEN ERROR('this write grant can only be used after dwg_not_before and before dwg_not_after')
     END;
 
-    $dwg_result = idos.dwg_verify_owner($dwg_owner, $dwg_grantee, $dwg_id, $dwg_access_grant_timelock, $dwg_not_before, $dwg_not_after, $dwg_signature);
+    $dwg_result = idos.dwg_verify_owner($dwg_owner, $dwg_grantee, $dwg_issuer_public_key, $dwg_id, $dwg_access_grant_timelock, $dwg_not_before, $dwg_not_after, $dwg_signature);
     SELECT CASE WHEN $dwg_result != 1 THEN error('verify_dwg_owner:' || $dwg_result) END;
 
     $original_result = idos.assert_credential_signatures(
@@ -731,6 +734,7 @@ action create_credentials_by_dwg(
         id,
         owner_wallet_identifier,
         grantee_wallet_identifier,
+        issuer_public_key,
         original_credential_id,
         copy_credential_id,
         access_grant_timelock,
@@ -740,6 +744,7 @@ action create_credentials_by_dwg(
         $dwg_id,
         $dwg_owner,
         $dwg_grantee,
+        $dwg_issuer_public_key,
         $original_credential_id,
         $copy_credential_id,
         $dwg_access_grant_timelock,
@@ -924,6 +929,7 @@ procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key 
 action dwg_message(
     $owner_wallet_identifier,
     $grantee_wallet_identifier,
+    $issuer_public_key,
     $id,
     $access_grant_timelock, // Must be in yyyy-mm-ddThh:mm:ssZ format
     $not_usable_before, // Must be in yyyy-mm-ddThh:mm:ssZ format
@@ -933,7 +939,7 @@ action dwg_message(
     $result = idos.validate_not_usable_times($not_usable_before, $not_usable_after); // Check the format and precedence
     SELECT CASE WHEN $result != 1 THEN ERROR('not_usable_before must be before not_usable_after') END;
 
-    $message = idos.dwg_message($owner_wallet_identifier, $grantee_wallet_identifier, $id, $access_grant_timelock, $not_usable_before, $not_usable_after);
+    $message = idos.dwg_message($owner_wallet_identifier, $grantee_wallet_identifier, $issuer_public_key, $id, $access_grant_timelock, $not_usable_before, $not_usable_after);
     SELECT $message as message;
 }
 
