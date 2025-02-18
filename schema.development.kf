@@ -81,14 +81,18 @@ table delegates {
     foreign_key (inserter_id) references inserters(id) on_delete cascade
 }
 
-// A user gives a grant to write data (create a credential, share the credential) on his behalf to some issuer
-table write_grants {
+table consumed_write_grants {
     id uuid primary,
-    wg_owner_wallet_identifier text notnull, // user wallet/pk
-    wg_grantee_wallet_identifier text notnull, // issuer wallet/pk
-    wg_owner_user_id uuid notnull, // user's id, to be sure we will find the user if the owner's wallet will be deleted
-    #write_grants_user_id_grantee unique(wg_owner_user_id, wg_grantee_wallet_identifier),
-    foreign_key (wg_owner_user_id) references users(id) on_delete cascade
+    owner_wallet_identifier text notnull, // user wallet/pk
+    grantee_wallet_identifier text notnull, // grantee wallet/pk
+    issuer_public_key text notnull,
+    original_credential_id uuid,
+    copy_credential_id uuid,
+    access_grant_timelock text,
+    not_usable_before text,
+    not_usable_after text,
+    foreign_key (original_credential_id) references credentials(id) on_delete set null,
+    foreign_key (copy_credential_id) references credentials(id) on_delete set null
 }
 
 table access_grants {
@@ -365,36 +369,6 @@ action add_credential (
     );
 }
 
-action add_credential_by_write_grant (
-    $id,
-    $user_id,
-    $issuer_auth_public_key,
-    $encryptor_public_key,
-    $content,
-    $public_notes,
-    $public_notes_signature,
-    $broader_signature
-) public {
-    SELECT get_write_grant_id($user_id); // throw an error if no write_grant
-
-    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
-    SELECT CASE WHEN $result != 'ok' THEN ERROR('assert_credential_signatures:' || $result) END;
-
-    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
-
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
-    VALUES (
-        $id,
-        $user_id,
-        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
-        $public_notes,
-        $content,
-        $encryptor_public_key,
-        $issuer_auth_public_key,
-        get_write_grant_id($user_id)::text
-    );
-}
-
 // TODO: change to procedure
 @kgw(authn='true')
 action get_credentials() public view {
@@ -531,6 +505,7 @@ action share_credential (
     );
 }
 
+// Passporting scenario
 action create_credential_copy(
     $id,
     $original_credential_id,
@@ -637,69 +612,144 @@ action share_credential_through_dag (
     );
 }
 
-action share_credential_by_write_grant (
-    $id,
-    $user_id,
-    $encryptor_public_key,
-    $content,
-    $content_hash,
-    $public_notes,
-    $public_notes_signature,
-    $broader_signature,
+action create_credentials_by_dwg(
+    $issuer_auth_public_key,
+    $original_encryptor_public_key,
     $original_credential_id,
-    $grantee_wallet_identifier,
-    $locked_until,
-    $issuer_auth_public_key
-) public {
-    SELECT CASE WHEN $locked_until < 0 THEN
-        error('locked_until must be positive integer timestamp or zero')
+    $original_content,
+    $original_public_notes,
+    $original_public_notes_signature,
+    $original_broader_signature,
+    $copy_encryptor_public_key,
+    $copy_credential_id,
+    $copy_content,
+    $copy_public_notes_signature, // Signature of an empty string?! This is weird.
+    $copy_broader_signature,
+    $content_hash, // For access grant
+    $dwg_owner,
+    $dwg_grantee,
+    $dwg_issuer_public_key,
+    $dwg_id,
+    $dwg_access_grant_timelock,
+    $dwg_not_before,
+    $dwg_not_after,
+    $dwg_signature) public {
+
+    // Check the content creator (encryptor) is the issuer that user delegated to issue the credential
+    SELECT CASE
+        WHEN $issuer_auth_public_key != $dwg_issuer_public_key
+        THEN ERROR('credentials issuer must be a grantee of delegated write grant (issuer_auth_public_key = dwg_grantee)')
     END;
 
-    SELECT get_write_grant_id($user_id); // throw an error if no write_grant
-
-    SELECT CASE WHEN NOT credential_belongs_to_user($original_credential_id, $user_id) THEN
-        error('the original credential does not belong to the user')
+    SELECT CASE
+        WHEN NOT EXISTS (SELECT 1 FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $dwg_owner))
+        THEN ERROR('dwg_owner not found')
     END;
 
-    SELECT CASE WHEN get_write_grant_id($user_id)::text != get_credential_inserter($original_credential_id) THEN
-        error('you can share only original credentials you created')
+    $ag_timelock = idos.parse_date($dwg_access_grant_timelock); // Will fail if not in the RFC3339 format
+    $times_validation = idos.validate_not_usable_times($dwg_not_before, $dwg_not_after); // Check the format and precedence
+    SELECT CASE WHEN $times_validation != 1 THEN ERROR('dwg_not_before must be before dwg_not_after') END;
+
+    // Check if current block timestamp in time range allowed by write grant.
+    // @block_timestamp is a timestamp of previous block, which is can be a few seconds earlier
+    // (max is 6 seconds in current network consensus settings) then a time on a requester's machine.
+    // Also, if requester's machine has wrong time, it can be an issue.
+    SELECT CASE
+        WHEN NOT (
+            parse_unix_timestamp($dwg_not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int <= (@block_timestamp + 6)
+            AND @block_timestamp <= parse_unix_timestamp($dwg_not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int
+        )
+        THEN ERROR('this write grant can only be used after dwg_not_before and before dwg_not_after')
     END;
 
-    SELECT CASE WHEN (SELECT count(1) FROM access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s-%s', $grantee_wallet_identifier::text, $id::text, $locked_until::text))) > 0 THEN
-        error('a grant with the same grantee, original_credential_id, and locked_until already exists')
+    $dwg_result = idos.dwg_verify_owner($dwg_owner, $dwg_grantee, $dwg_issuer_public_key, $dwg_id, $dwg_access_grant_timelock, $dwg_not_before, $dwg_not_after, $dwg_signature);
+    SELECT CASE WHEN $dwg_result != 1 THEN error('verify_dwg_owner:' || $dwg_result) END;
+
+    $original_result = idos.assert_credential_signatures(
+        $issuer_auth_public_key,
+        $original_public_notes,
+        $original_public_notes_signature,
+        $original_content,
+        $original_broader_signature
+    );
+    SELECT CASE WHEN $original_result != 'ok' THEN
+        error('assert_original_credential_signatures:' || $original_result)
     END;
 
-    SELECT CASE WHEN $public_notes != '' THEN
-        error('shared credentials cannot have public_notes, it must be an empty string')
+    $copy_result = idos.assert_credential_signatures(
+        $issuer_auth_public_key,
+        '',
+        $copy_public_notes_signature,
+        $copy_content,
+        $copy_broader_signature
+    );
+    SELECT CASE WHEN $copy_result != 'ok' THEN
+        error('assert_copy_credential_signatures:' || $copy_result)
     END;
 
-    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
-    SELECT CASE WHEN $result != 'ok' THEN error('assert_credential_signatures:' || $result) END;
-
-    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
+    // Insert original credential
+    $verifiable_credential_id = idos.get_verifiable_credential_id($original_public_notes);
 
     INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES (
-        $id,
-        $user_id,
+        $original_credential_id,
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
-        $public_notes,
-        $content,
-        $encryptor_public_key,
+        $original_public_notes,
+        $original_content,
+        $original_encryptor_public_key,
         $issuer_auth_public_key,
-        get_write_grant_id($user_id)::text
+        $dwg_id::text
     );
 
-    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
+    // Insert copy credential
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
+    VALUES (
+        $copy_credential_id,
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
+        NULL,
+        '',
+        $copy_content,
+        $copy_encryptor_public_key,
+        $issuer_auth_public_key,
+        $dwg_id::text
+    );
+
+    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $copy_credential_id);
 
     // SELECT is just a strange way of calling a procedure from an action
     SELECT create_access_grant(
-        $grantee_wallet_identifier,
-        $id,
-        $locked_until::int,
+        $dwg_grantee,
+        $copy_credential_id,
+        $ag_timelock,
         $content_hash,
-        'write_grant',
-        get_write_grant_id($user_id)::text
+        'delegated_write_grant',
+        $dwg_id::text
+    );
+
+    INSERT INTO consumed_write_grants (
+        id,
+        owner_wallet_identifier,
+        grantee_wallet_identifier,
+        issuer_public_key,
+        original_credential_id,
+        copy_credential_id,
+        access_grant_timelock,
+        not_usable_before,
+        not_usable_after
+    ) VALUES (
+        $dwg_id,
+        $dwg_owner,
+        $dwg_grantee,
+        $dwg_issuer_public_key,
+        $original_credential_id,
+        $copy_credential_id,
+        $dwg_access_grant_timelock,
+        $dwg_not_before,
+        $dwg_not_after
     );
 }
 
@@ -876,51 +926,21 @@ procedure share_attribute($id uuid, $original_attribute_id uuid, $attribute_key 
 
 // WRITE GRANTS ACTIONS
 
-procedure add_write_grant($wg_grantee_wallet_identifier text) public {
-    INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id) VALUES (
-        uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::uuid, format('%s-%s', @caller, $wg_grantee_wallet_identifier)),
-        @caller,
-        $wg_grantee_wallet_identifier,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = @caller)
-        )
-    );
-}
+action dwg_message(
+    $owner_wallet_identifier,
+    $grantee_wallet_identifier,
+    $issuer_public_key,
+    $id,
+    $access_grant_timelock, // Must be in yyyy-mm-ddThh:mm:ssZ format
+    $not_usable_before, // Must be in yyyy-mm-ddThh:mm:ssZ format
+    $not_usable_after // Must be in yyyy-mm-ddThh:mm:ssZ format
+) public view {
+    idos.parse_date($access_grant_timelock); // Will fail if not in the yyyy-mm-ddThh:mm:ssZ format, and not comply to RFC3339
+    $result = idos.validate_not_usable_times($not_usable_before, $not_usable_after); // Check the format and precedence
+    SELECT CASE WHEN $result != 1 THEN ERROR('not_usable_before must be before not_usable_after') END;
 
-procedure remove_write_grant($wg_grantee_wallet_identifier text) public {
-    DELETE FROM write_grants
-        WHERE wg_grantee_wallet_identifier = $wg_grantee_wallet_identifier COLLATE NOCASE
-        AND wg_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = @caller));
-}
-
-procedure get_write_grant_id($user_id uuid) private view returns (id uuid) {
-    for $row in SELECT id FROM write_grants WHERE wg_owner_user_id = $user_id AND wg_grantee_wallet_identifier = @caller COLLATE NOCASE LIMIT 1 {
-        return $row.id;
-    }
-
-    error('there is no write grant found');
-}
-
-@kgw(authn='true')
-procedure has_write_grant_given_to($wg_grantee_wallet_identifier text) public view returns (has_given bool) {
-    for $row in SELECT 1 FROM write_grants
-        WHERE wg_grantee_wallet_identifier = $wg_grantee_wallet_identifier COLLATE NOCASE
-        AND wg_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = @caller)) {
-            return true;
-        }
-    return false;
-}
-
-@kgw(authn='true')
-procedure has_write_grant_given_by($user_id uuid) public view returns (has_given bool) {
-    for $row in SELECT 1 FROM write_grants
-        WHERE wg_owner_user_id = $user_id
-        AND wg_grantee_wallet_identifier = @caller COLLATE NOCASE {
-            return true;
-        }
-    return false;
+    $message = idos.dwg_message($owner_wallet_identifier, $grantee_wallet_identifier, $issuer_public_key, $id, $access_grant_timelock, $not_usable_before, $not_usable_after);
+    SELECT $message as message;
 }
 
 
@@ -1184,16 +1204,19 @@ procedure insert_shared_attr_as_owner($original_id uuid, $copy_id uuid) owner pu
 // configs: upsert_config_as_owner
 
 procedure insert_access_grants_as_owner($id uuid, $ag_owner_user_id uuid, $ag_grantee_wallet_identifier text, $data_id uuid,
-    $locked_until int, $content_hash text, $height int, $inserter_type text, $inserter_id text) owner public {
+$locked_until int, $content_hash text, $height int, $inserter_type text, $inserter_id text) owner public {
     INSERT INTO access_grants (id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, height, inserter_type, inserter_id)
     VALUES ($id, $ag_owner_user_id, $ag_grantee_wallet_identifier, $data_id, $locked_until, $content_hash, $height, $inserter_type, $inserter_id);
 }
 
-procedure insert_write_grants_as_owner($id uuid, $wg_owner_wallet_identifier text, $wg_grantee_wallet_identifier text, $wg_owner_user_id uuid) owner public {
-    INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id)
-    VALUES ($id, $wg_owner_wallet_identifier, $wg_grantee_wallet_identifier, $wg_owner_user_id);
+procedure insert_consumed_wgs_as_owner($id uuid, $owner_wallet_identifier text, $grantee_wallet_identifier text,
+$issuer_public_key text, $original_credential_id uuid, $copy_credential_id uuid, $access_grant_timelock text,
+$not_usable_before text, $not_usable_after text) owner public {
+    INSERT INTO consumed_write_grants (id, owner_wallet_identifier, grantee_wallet_identifier, issuer_public_key, original_credential_id,
+        copy_credential_id, access_grant_timelock, not_usable_before, not_usable_after)
+    VALUES ($id, $owner_wallet_identifier, $grantee_wallet_identifier, $issuer_public_key, $original_credential_id,
+        $copy_credential_id, $access_grant_timelock, $not_usable_before, $not_usable_after);
 }
-
 
 // ACTIONS FOR IN-SCHEMA DATA MIGRATION (OWNER)
 
@@ -1339,21 +1362,27 @@ procedure migrate_access_grants($dbid text) public owner {
     }
 }
 
-
-procedure all_write_grants_as_owner() public view owner returns table (id uuid, wg_owner_wallet_identifier text, wg_grantee_wallet_identifier text,
-    wg_owner_user_id uuid) {
-    return SELECT id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id FROM write_grants;
+procedure all_consumed_wgs_as_owner() public view owner returns table (id uuid, owner_wallet_identifier text, grantee_wallet_identifier text,
+issuer_public_key text, original_credential_id uuid, copy_credential_id uuid, access_grant_timelock text,
+not_usable_before text, not_usable_after text) {
+    return SELECT id, owner_wallet_identifier, grantee_wallet_identifier, issuer_public_key, original_credential_id,
+    copy_credential_id, access_grant_timelock, not_usable_before, not_usable_after FROM consumed_write_grants;
 }
 
-foreign procedure get_all_write_grants() returns table (id uuid, wg_owner_wallet_identifier text, wg_grantee_wallet_identifier text, wg_owner_user_id uuid)
+foreign procedure get_all_consumed_wgs() returns table (id uuid, owner_wallet_identifier text, grantee_wallet_identifier text,
+    issuer_public_key text, original_credential_id uuid, copy_credential_id uuid, access_grant_timelock text,
+    not_usable_before text, not_usable_after text)
 
-procedure migrate_write_grants($dbid text) public owner {
-    for $row in SELECT id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id FROM get_all_write_grants[$dbid, 'all_write_grants_as_owner']() {
-        INSERT INTO write_grants (id, wg_owner_wallet_identifier, wg_grantee_wallet_identifier, wg_owner_user_id)
-            VALUES ($row.id, $row.wg_owner_wallet_identifier, $row.wg_grantee_wallet_identifier, $row.wg_owner_user_id);
+procedure migrate_consumed_write_grants($dbid text) public owner {
+    for $row in SELECT id, owner_wallet_identifier, grantee_wallet_identifier, issuer_public_key, original_credential_id,
+            copy_credential_id, access_grant_timelock, not_usable_before, not_usable_after
+        FROM get_all_consumed_wgs[$dbid, 'all_consumed_wgs_as_owner']() {
+        INSERT INTO consumed_write_grants (id, owner_wallet_identifier, grantee_wallet_identifier, issuer_public_key, original_credential_id,
+            copy_credential_id, access_grant_timelock, not_usable_before, not_usable_after)
+        VALUES ($row.id, $row.owner_wallet_identifier, $row.grantee_wallet_identifier, $row.issuer_public_key, $row.original_credential_id,
+            $row.copy_credential_id, $row.access_grant_timelock, $row.not_usable_before, $row.not_usable_after);
     }
 }
-
 
 procedure all_configs_as_owner() public view owner returns table (config_key text, value text) {
     return SELECT config_key, value FROM configs;
@@ -1379,6 +1408,6 @@ procedure migrate_all_data($old_dbid text) public owner {
     migrate_shared_credentials($old_dbid);
     migrate_user_attributes($old_dbid);
     migrate_shared_user_attrs($old_dbid);
-    migrate_write_grants($old_dbid); // WGs must be inserted before access grants
+    migrate_consumed_write_grants($old_dbid);
     migrate_access_grants($old_dbid);
 }
