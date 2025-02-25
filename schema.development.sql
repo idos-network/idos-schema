@@ -583,10 +583,16 @@ CREATE ACTION [IF NOT EXISTS] share_credential_through_dag (
     END;
 
     -- This works for EVM-compatible signatures only
-    $owner_verified = idos.verify_owner_without_hash($dag_owner_wallet_identifier, $dag_grantee_wallet_identifier, $id, $dag_locked_until, $dag_signature);
-    SELECT CASE WHEN $owner_verified != 1 THEN
-        error('the dag_signature is invalid')
-    END;
+    $owner_verified = idos.verify_owner_without_hash(
+        $dag_owner_wallet_identifier,
+        $dag_grantee_wallet_identifier,
+        $id,
+        $dag_locked_until,
+        $dag_signature
+    );
+    if !$owner_verified {
+        error('the dag_signature is invalid');
+    }
 
     SELECT CASE WHEN $public_notes != '' THEN
         error('shared credentials cannot have public_notes, it must be an empty string')
