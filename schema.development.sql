@@ -1100,9 +1100,9 @@ CREATE ACTION [IF NOT EXISTS] create_ag_by_dag_for_copy(
         $dag_content_hash,
         $dag_signature
         );
-    SELECT CASE WHEN $owner_verified != 1 THEN
-        error('the dag_signature is invalid')
-    END;
+    if !$owner_verified {
+        error('the dag_signature is invalid');
+    }
 
     SELECT CASE WHEN NOT EXISTS (
         SELECT 1 from credentials
