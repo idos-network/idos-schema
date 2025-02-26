@@ -179,12 +179,6 @@ CREATE ACTION IF NOT EXISTS update_user_pub_key_as_inserter($id UUID, $recipient
         WHERE id = $id;
 };
 
--- DELETE???
--- -- For development, for not to drop a DB if we need to clear it. Should not be in prod envs.
--- CREATE ACTION IF NOT EXISTS delete_user_as_owner($id UUID) PUBLIC OWNER {
---     DELETE FROM users WHERE id=$id;
--- }
-
 CREATE ACTION IF NOT EXISTS get_user() PUBLIC VIEW RETURNS (id UUID, recipient_encryption_public_key TEXT) {
     return SELECT id, recipient_encryption_public_key FROM users
         WHERE id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
