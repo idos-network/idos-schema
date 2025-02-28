@@ -382,7 +382,7 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
     public_notes TEXT,
     issuer_auth_public_key TEXT,
     inserter TEXT,
-    original_id TEXT
+    original_id UUID
 ) {
     return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.issuer_auth_public_key, c.inserter, sc.original_id
         FROM credentials AS c
