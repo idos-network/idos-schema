@@ -205,8 +205,6 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $message TEXT,
     $signature TEXT
 ) PUBLIC {
-    NOTICE('LOGGING!!!');
-    NOTICE($id::text);
     if $wallet_type = 'NEAR' AND $public_key is null {
         ERROR('NEAR wallets require a public_key to be given');
     }
@@ -222,7 +220,7 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     }
 
     for $row_near in SELECT 1 FROM wallets WHERE $wallet_type = 'NEAR' AND id != $id AND public_key = $public_key COLLATE NOCASE {
-        error('this NEAR wallet PUBLIC key already exists in idos');
+        error('this NEAR wallet public key already exists in idos');
     }
 
     $inserter := get_inserter();
@@ -241,7 +239,7 @@ CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $
 
     if $wallet_type = 'NEAR' {
         if !idos.is_valid_public_key($public_key, $wallet_type) {
-            ERROR('invalid or unsupported PUBLIC key');
+            ERROR('invalid or unsupported public key');
         }
     }
 
@@ -425,14 +423,13 @@ CREATE OR REPLACE ACTION edit_credential (
     $encryptor_public_key TEXT,
     $issuer_auth_public_key TEXT
 ) PUBLIC {
-    SELECT CASE
-        WHEN EXISTS (
-            SELECT 1 from credentials AS c
-                INNER JOIN shared_credentials AS sc on c.id = sc.copy_id
-                WHERE c.id = $id
-                AND c.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-                    OR (wallet_type = 'NEAR' AND public_key = @caller))
-        ) THEN ERROR('Can not edit shared credential') END;
+    for $row in SELECT 1 from credentials AS c
+                    INNER JOIN shared_credentials AS sc on c.id = sc.copy_id
+                    WHERE c.id = $id
+                    AND c.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+                        OR (wallet_type = 'NEAR' AND public_key = @caller)) {
+        ERROR('Can not edit shared credential');
+    }
 
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
     if !$result {
@@ -453,7 +450,7 @@ CREATE OR REPLACE ACTION edit_credential (
     );
 };
 
--- Be aware that @caller here is ed25519 PUBLIC key, hex encoded.
+-- Be aware that @caller here is ed25519 public key, hex encoded.
 -- All other @caller in the schema are either secp256k1 or nep413
 -- This action can't be called by kwil-cli (as kwil-cli uses secp256k1 only)
 CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $public_notes TEXT) PUBLIC {
@@ -495,9 +492,9 @@ CREATE OR REPLACE ACTION share_credential (
         error('original credential does not belong to the caller');
     }
 
-    SELECT CASE WHEN $public_notes != '' THEN
-        error('shared credentials cannot have public_notes, it must be an empty string')
-    END;
+    if $public_notes != '' {
+        error('shared credentials cannot have public_notes, it must be an empty string');
+    }
 
     add_credential(
         $id,
@@ -535,9 +532,9 @@ CREATE OR REPLACE ACTION create_credential_copy(
         error('original credential does not belong to the caller');
     }
 
-    SELECT CASE WHEN $public_notes != '' THEN
-        error('shared credentials cannot have public_notes, it must be an empty string')
-    END;
+    if $public_notes != '' {
+        error('shared credentials cannot have public_notes, it must be an empty string');
+    }
 
     add_credential(
         $id,
@@ -651,7 +648,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $dwg_grantee TEXT,
     $dwg_issuer_public_key TEXT,
     $dwg_id UUID,
-    $dwg_access_grant_timelock INT8,
+    $dwg_access_grant_timelock TEXT,
     $dwg_not_before TEXT,
     $dwg_not_after TEXT,
     $dwg_signature TEXT) PUBLIC {
