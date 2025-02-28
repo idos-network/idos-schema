@@ -211,8 +211,10 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
         ERROR('NEAR wallets require a public_key to be given');
     }
 
-    if $wallet_type = 'NEAR' AND !idos.is_valid_public_key($public_key, $wallet_type) {
-        ERROR('invalid or unsupported PUBLIC key');
+    if $wallet_type = 'NEAR' {
+        if !idos.is_valid_public_key($public_key, $wallet_type) {
+            ERROR('invalid or unsupported public key');
+        }
     }
 
     for $row_evm in SELECT 1 FROM wallets WHERE $wallet_type = 'EVM' AND id != $id AND address = $address COLLATE NOCASE {
@@ -237,8 +239,10 @@ CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $
         ERROR('NEAR wallets require a public_key to be given');
     }
 
-    if $wallet_type = 'NEAR' AND !idos.is_valid_public_key($public_key, $wallet_type) {
-        ERROR('invalid or unsupported PUBLIC key');
+    if $wallet_type = 'NEAR' {
+        if !idos.is_valid_public_key($public_key, $wallet_type) {
+            ERROR('invalid or unsupported PUBLIC key');
+        }
     }
 
     for $row in SELECT 1 FROM wallets WHERE $wallet_type = 'EVM' AND address = $address COLLATE NOCASE {
@@ -382,7 +386,7 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
     public_notes TEXT,
     issuer_auth_public_key TEXT,
     inserter TEXT,
-    original_id TEXT
+    original_id UUID
 ) {
     return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.issuer_auth_public_key, c.inserter, sc.original_id
         FROM credentials AS c
