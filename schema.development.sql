@@ -584,9 +584,9 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
         error('the dag_signature is invalid');
     }
 
-    SELECT CASE WHEN $public_notes != '' THEN
-        error('shared credentials cannot have public_notes, it must be an empty string')
-    END;
+    if $public_notes != '' {
+        error('shared credentials cannot have public_notes, it must be an empty string');
+    }
 
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
     if !$result {
@@ -654,10 +654,9 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $dwg_signature TEXT) PUBLIC {
 
     -- Check the content creator (encryptor) is the issuer that user delegated to issue the credential
-    SELECT CASE
-        WHEN $issuer_auth_public_key != $dwg_issuer_public_key
-        THEN ERROR('credentials issuer must be a grantee of delegated write grant (issuer_auth_public_key = dwg_grantee)')
-    END;
+    if $issuer_auth_public_key != $dwg_issuer_public_key {
+        error('credentials issuer must be a grantee of delegated write grant (issuer_auth_public_key = dwg_grantee)');
+    }
 
     SELECT CASE
         WHEN NOT EXISTS (SELECT 1 FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
@@ -665,9 +664,13 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
         THEN ERROR('dwg_owner not found')
     END;
 
-    $ag_timelock = idos.parse_date($dwg_access_grant_timelock); -- Will fail if not in the RFC3339 format
-    $times_validation = idos.validate_not_usable_times($dwg_not_before, $dwg_not_after); -- Check the format and precedence
-    SELECT CASE WHEN $times_validation != 1 THEN ERROR('dwg_not_before must be before dwg_not_after') END;
+    -- Will fail if not in the RFC3339 format
+    $ag_timelock = idos.parse_date($dwg_access_grant_timelock);
+
+    -- Check the format and precedence
+    if !idos.validate_not_usable_times($dwg_not_before, $dwg_not_after) {
+        error('dwg_not_before must be before dwg_not_after');
+    }
 
     -- Check if current block timestamp in time range allowed by write grant.
     -- @block_timestamp is a timestamp of previous block, which is can be a few seconds earlier
@@ -904,14 +907,13 @@ CREATE OR REPLACE ACTION get_attributes() PUBLIC VIEW returns table (
 };
 
 CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
-    SELECT CASE
-        WHEN EXISTS (
-            SELECT 1 from user_attributes AS ha
+    for $row in SELECT 1 FROM user_attributes AS ha
                 INNER JOIN shared_user_attributes AS sha on ha.id = sha.copy_id
                 WHERE ha.id = $id
                 AND ha.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-                    OR (wallet_type = 'NEAR' AND public_key = @caller))
-        ) THEN ERROR('Can not edit shared attribute') END;
+                    OR (wallet_type = 'NEAR' AND public_key = @caller)) {
+        error('Can not edit shared attribute');
+    }
 
     UPDATE user_attributes
     SET attribute_key=$attribute_key, value=$value
@@ -956,9 +958,13 @@ CREATE OR REPLACE ACTION dwg_message(
     $not_usable_before TEXT, -- Must be in yyyy-mm-ddThh:mm:ssZ format
     $not_usable_after TEXT -- Must be in yyyy-mm-ddThh:mm:ssZ format
 ) PUBLIC VIEW returns (message TEXT) {
-    idos.parse_date($access_grant_timelock); -- Will fail if not in the yyyy-mm-ddThh:mm:ssZ format, and not comply to RFC3339
-    $result = idos.validate_not_usable_times($not_usable_before, $not_usable_after); -- Check the format and precedence
-    SELECT CASE WHEN $result != 1 THEN ERROR('not_usable_before must be before not_usable_after') END;
+    -- Will fail if not in the yyyy-mm-ddThh:mm:ssZ format, and not comply to RFC3339
+    idos.parse_date($access_grant_timelock);
+
+    -- Check the format and precedence
+    if !idos.validate_not_usable_times($not_usable_before, $not_usable_after) {
+        error('not_usable_before must be before not_usable_after');
+    }
 
     return idos.dwg_message(
         $owner_wallet_identifier,
@@ -1084,7 +1090,7 @@ CREATE OR REPLACE ACTION dag_message(
 CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $dag_owner_wallet_identifier TEXT,
     $dag_grantee_wallet_identifier TEXT,
-    $dag_data_id TEXT,
+    $dag_data_id UUID,
     $dag_locked_until INT,
     $dag_content_hash TEXT,
     $dag_signature TEXT
@@ -1093,24 +1099,26 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $owner_verified = idos.verify_owner(
         $dag_owner_wallet_identifier,
         $dag_grantee_wallet_identifier,
-        $dag_data_id,
+        $dag_data_id::TEXT,
         $dag_locked_until,
         $dag_content_hash,
         $dag_signature
-        );
+    );
     if !$owner_verified {
         error('the dag_signature is invalid');
     }
 
-    SELECT CASE WHEN NOT EXISTS (
-        SELECT 1 from credentials
+    $data_id_belongs_to_owner bool := false;
+    for $row in SELECT 1 from credentials
             INNER JOIN wallets ON credentials.user_id = wallets.user_id
             WHERE credentials.id = $dag_data_id
             AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE
-            AND wallets.wallet_type = 'EVM'
-    ) THEN
-        error('the data_id does not belong to the OWNER')
-    END;
+            AND wallets.wallet_type = 'EVM' {
+        $data_id_belongs_to_owner := true;
+    }
+    if !$data_id_belongs_to_owner {
+        error('the data_id does not belong to the owner');
+    }
 
     create_access_grant(
         $dag_grantee_wallet_identifier,
