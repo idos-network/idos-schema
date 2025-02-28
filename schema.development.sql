@@ -241,12 +241,12 @@ CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $
         ERROR('invalid or unsupported PUBLIC key');
     }
 
-    SELECT CASE
-        WHEN EXISTS (SELECT 1 FROM wallets WHERE $wallet_type = 'EVM' AND address = $address COLLATE NOCASE)
-            THEN error('this EVM wallet address already exists in idos')
-        WHEN EXISTS (SELECT 1 FROM wallets WHERE $wallet_type = 'NEAR' AND public_key = $public_key COLLATE NOCASE)
-            THEN error('this NEAR wallet PUBLIC key already exists in idos')
-    END;
+    for $row in SELECT 1 FROM wallets WHERE $wallet_type = 'EVM' AND address = $address COLLATE NOCASE {
+        error('this EVM wallet address already exists in idos');
+    }
+    for $row in SELECT 1 FROM wallets WHERE $wallet_type = 'NEAR' AND public_key = $public_key COLLATE NOCASE {
+        error('this NEAR wallet public key already exists in idos');
+    }
 
     INSERT INTO wallets (id, user_id, address, public_key, wallet_type, message, signature)
     VALUES (
@@ -265,7 +265,7 @@ CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $
     );
 };
 
-CREATE OR REPLACE ACTION get_wallets() PUBLIC VIEW RETURNS (
+CREATE OR REPLACE ACTION get_wallets() PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
     address TEXT,
@@ -275,14 +275,14 @@ CREATE OR REPLACE ACTION get_wallets() PUBLIC VIEW RETURNS (
     signature TEXT,
     inserter TEXT
 ) {
-    SELECT DISTINCT w1.id, w1.user_id, w1.address, w1.public_key, w1.wallet_type, w1.message, w1.signature, w1.inserter
-    FROM wallets AS w1
-    INNER JOIN wallets AS w2 ON w1.user_id = w2.user_id
-    WHERE (
-        w2.wallet_type = 'EVM' AND w2.address = @caller COLLATE NOCASE
-    ) OR (
-        w2.wallet_type = 'NEAR' AND w2.public_key = @caller
-    );
+    return SELECT DISTINCT w1.id, w1.user_id, w1.address, w1.public_key, w1.wallet_type, w1.message, w1.signature, w1.inserter
+        FROM wallets AS w1
+        INNER JOIN wallets AS w2 ON w1.user_id = w2.user_id
+        WHERE (
+            w2.wallet_type = 'EVM' AND w2.address = @caller COLLATE NOCASE
+        ) OR (
+            w2.wallet_type = 'NEAR' AND w2.public_key = @caller
+        );
 };
 
 CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
@@ -376,7 +376,7 @@ CREATE OR REPLACE ACTION add_credential (
     );
 };
 
-CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS (
+CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
     public_notes TEXT,
@@ -384,15 +384,15 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS (
     inserter TEXT,
     original_id TEXT
 ) {
-    SELECT DISTINCT c.id, c.user_id, c.public_notes, c.issuer_auth_public_key, c.inserter, sc.original_id
-    FROM credentials AS c
-    LEFT JOIN shared_credentials AS sc ON c.id = sc.copy_id
-    INNER JOIN wallets ON c.user_id = wallets.user_id
-    WHERE (
-        wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
-    ) OR (
-        wallets.wallet_type = 'NEAR' AND wallets.public_key = @caller
-    );
+    return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.issuer_auth_public_key, c.inserter, sc.original_id
+        FROM credentials AS c
+        LEFT JOIN shared_credentials AS sc ON c.id = sc.copy_id
+        INNER JOIN wallets ON c.user_id = wallets.user_id
+        WHERE (
+            wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
+        ) OR (
+            wallets.wallet_type = 'NEAR' AND wallets.public_key = @caller
+        );
 };
 
 CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID) PUBLIC VIEW RETURNS table (
@@ -832,11 +832,11 @@ CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS ta
     }
 
     return SELECT c.id, c.user_id, oc.public_notes, c.content, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter
-    FROM credentials AS c
-    LEFT JOIN shared_credentials ON c.id = shared_credentials.copy_id
-    LEFT JOIN credentials as oc ON shared_credentials.original_id = oc.id
-    WHERE c.id = $id;
-};
+        FROM credentials AS c
+        LEFT JOIN shared_credentials ON c.id = shared_credentials.copy_id
+        LEFT JOIN credentials as oc ON shared_credentials.original_id = oc.id
+        WHERE c.id = $id;
+    };
 
 CREATE OR REPLACE ACTION get_sibling_credential_id ($content_hash TEXT) PUBLIC VIEW RETURNS (id UUID) {
     for $row in SELECT c.id FROM credentials as c INNER JOIN access_grants as ag ON c.id = ag.data_id
@@ -1046,7 +1046,8 @@ CREATE OR REPLACE ACTION get_access_grants_granted ($page INT, $size INT) PUBLIC
         WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
 };
 
-CREATE OR REPLACE ACTION get_access_grants_granted_count () PUBLIC VIEW RETURNS table(count INT) {
+-- TODO: refactor to return single value instead of a table
+CREATE OR REPLACE ACTION get_access_grants_granted_count () PUBLIC VIEW RETURNS table (count INT) {
     return SELECT COUNT(1) as count FROM access_grants
         WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE;
 };
@@ -1184,9 +1185,11 @@ CREATE OR REPLACE ACTION get_access_grants_for_credential($credential_id UUID) P
 
 -- Should we improve it to work with near wallets too?
 CREATE OR REPLACE ACTION has_profile($address TEXT) PUBLIC VIEW returns (has_profile BOOL) {
-    SELECT EXISTS (
-        SELECT 1 FROM wallets WHERE address=$address COLLATE NOCASE
-    ) AS has_profile;
+    for $row in SELECT 1 FROM wallets WHERE address=$address COLLATE NOCASE {
+        return true;
+    }
+
+    return false;
 };
 
 
