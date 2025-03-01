@@ -109,30 +109,6 @@ CREATE INDEX IF NOT EXISTS ag_data_id ON access_grants(data_id);
 CREATE INDEX IF NOT EXISTS ag_grantee_content_hash ON access_grants(ag_grantee_wallet_identifier, content_hash);
 CREATE INDEX IF NOT EXISTS ag_owner_user_id ON access_grants(ag_owner_user_id);
 
-CREATE TABLE IF NOT EXISTS configs (
-    config_key TEXT PRIMARY KEY,
-    value TEXT
-);
-
-
--- CONFIG ACTIONS
-
-CREATE OR REPLACE ACTION upsert_config_as_owner($config_key TEXT, $value TEXT) PUBLIC OWNER {
-    INSERT INTO configs (config_key, value) VALUES ($config_key, $value)
-        ON CONFLICT(config_key) DO UPDATE
-            SET value = $value;
-};
-
-CREATE OR REPLACE ACTION delete_config_as_owner($config_key TEXT) PUBLIC OWNER {
-    DELETE FROM configs WHERE config_key = $config_key;
-};
-
-CREATE OR REPLACE ACTION get_config_as_owner($config_key TEXT) PUBLIC VIEW OWNER RETURNS (value TEXT) {
-    for $row in SELECT config_key, value FROM configs WHERE config_key = $config_key {
-        return $row.value;
-    }
-};
-
 
 -- INSERTER AND DELEGATE ACTIONS
 
@@ -1247,7 +1223,6 @@ CREATE OR REPLACE ACTION insert_shared_attr_as_owner($original_id UUID, $copy_id
 -- Some entities no need special actions because main actions do the same
 -- inserters:  add_inserter_as_owner
 -- delegates: add_delegate_as_owner
--- configs: upsert_config_as_owner
 
 CREATE OR REPLACE ACTION insert_access_grants_as_owner($id UUID, $ag_owner_user_id UUID, $ag_grantee_wallet_identifier TEXT, $data_id UUID,
 $locked_until int, $content_hash TEXT, $height int, $inserter_type TEXT, $inserter_id TEXT) OWNER PUBLIC {
