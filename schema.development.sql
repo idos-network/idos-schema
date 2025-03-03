@@ -948,7 +948,7 @@ CREATE OR REPLACE ACTION dwg_message(
         $owner_wallet_identifier,
         $grantee_wallet_identifier,
         $issuer_public_key,
-        $id,
+        $id::TEXT,
         $access_grant_timelock,
         $not_usable_before,
         $not_usable_after
@@ -1052,14 +1052,14 @@ CREATE OR REPLACE ACTION has_locked_access_grants($id UUID) PUBLIC VIEW RETURNS 
 CREATE OR REPLACE ACTION dag_message(
     $dag_owner_wallet_identifier TEXT,
     $dag_grantee_wallet_identifier TEXT,
-    $dag_data_id TEXT,
+    $dag_data_id UUID,
     $dag_locked_until INT,
     $dag_content_hash TEXT
 ) PUBLIC VIEW returns (message TEXT) {
     return idos.dag_message(
         $dag_owner_wallet_identifier,
         $dag_grantee_wallet_identifier,
-        $dag_data_id,
+        $dag_data_id::TEXT,
         $dag_locked_until,
         $dag_content_hash
     );
