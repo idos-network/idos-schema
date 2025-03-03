@@ -540,24 +540,24 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
     $dag_locked_until INT8,
     $dag_signature TEXT
 ) PUBLIC {
-    SELECT CASE WHEN NOT EXISTS (
-        SELECT 1 from credentials
-            WHERE id = $original_credential_id
-            AND user_id = $user_id
-    ) THEN
-        error('The original credential does not belong to the user')
-    END;
+    $orig_cred_belongs_user bool := false;
+    for $row1 in SELECT 1 from credentials WHERE id = $original_credential_id AND user_id = $user_id {
+        $orig_cred_belongs_user := true;
+    }
+    if !$orig_cred_belongs_user {
+        error('the original credential does not belong to the user');
+    }
 
     -- This works for EVM-compatible signatures only
     $owner_verified = idos.verify_owner_without_hash(
         $dag_owner_wallet_identifier,
         $dag_grantee_wallet_identifier,
-        $id,
+        $id::TEXT,
         $dag_locked_until,
         $dag_signature
     );
     if !$owner_verified {
-        error('the dag_signature is invalid');
+        error('the signature was signed not by the dag_owner');
     }
 
     if $public_notes != '' {
@@ -566,18 +566,20 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
 
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
     if !$result {
-        error('signature is wrong');
+        error('credential public_notes_signature or broader_signature is wrong');
     }
 
-    SELECT CASE WHEN NOT EXISTS (
-        SELECT 1 from users
-            INNER JOIN wallets ON users.id = wallets.user_id
+    $dag_signed_by_user bool := false;
+    for $row2 in SELECT 1 from wallets
             WHERE wallet_type = 'EVM'
             AND address=$dag_owner_wallet_identifier COLLATE NOCASE
-            AND user_id = $user_id
-    ) THEN
+            AND user_id = $user_id {
+        $dag_signed_by_user := true;
+        break;
+    }
+    if !$dag_signed_by_user {
         error('the DAG is not signed by the user')
-    END;
+    }
 
     $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
 
