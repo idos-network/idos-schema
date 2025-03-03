@@ -634,11 +634,15 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
         error('credentials issuer must be a grantee of delegated write grant (issuer_auth_public_key = dwg_grantee)');
     }
 
-    SELECT CASE
-        WHEN NOT EXISTS (SELECT 1 FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = $dwg_owner))
-        THEN ERROR('dwg_owner not found')
-    END;
+    $dwg_owner_found bool := false;
+    for $row1 in SELECT 1 FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $dwg_owner) {
+        $dwg_owner_found := true;
+        break;
+    }
+    if !$dwg_owner_found {
+        error('dwg_owner not found');
+    }
 
     -- Will fail if not in the RFC3339 format
     $ag_timelock = idos.parse_date($dwg_access_grant_timelock);
@@ -652,19 +656,17 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     -- @block_timestamp is a timestamp of previous block, which is can be a few seconds earlier
     -- (max is 6 seconds in current network consensus settings) then a time on a requester's machine.
     -- Also, if requester's machine has wrong time, it can be an issue.
-    SELECT CASE
-        WHEN NOT (
-            parse_unix_timestamp($dwg_not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int <= (@block_timestamp + 6)
-            AND @block_timestamp <= parse_unix_timestamp($dwg_not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int
-        )
-        THEN ERROR('this write grant can only be used after dwg_not_before and before dwg_not_after')
-    END;
+    if parse_unix_timestamp($dwg_not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int > (@block_timestamp + 6)
+            OR @block_timestamp > parse_unix_timestamp($dwg_not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int {
+
+        error('this write grant can only be used after dwg_not_before and before dwg_not_after');
+    }
 
     $dwg_result = idos.dwg_verify_owner(
         $dwg_owner,
         $dwg_grantee,
         $dwg_issuer_public_key,
-        $dwg_id,
+        $dwg_id::TEXT,
         $dwg_access_grant_timelock,
         $dwg_not_before,
         $dwg_not_after,
@@ -1091,6 +1093,7 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
             AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE
             AND wallets.wallet_type = 'EVM' {
         $data_id_belongs_to_owner := true;
+        break;
     }
     if !$data_id_belongs_to_owner {
         error('the data_id does not belong to the owner');
