@@ -578,7 +578,7 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
         break;
     }
     if !$dag_signed_by_user {
-        error('the DAG is not signed by the user')
+        error('the DAG is not signed by the user');
     }
 
     $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
