@@ -1,6 +1,6 @@
 -- EXTENSION INITIALIZATION
 
--- USE idos AS idos;
+USE IF NOT EXISTS idos AS idos;
 
 
 -- TABLES
@@ -633,7 +633,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
 
     -- Check the content creator (encryptor) is the issuer that user delegated to issue the credential
     if $issuer_auth_public_key != $dwg_issuer_public_key {
-        error('credentials issuer must be a grantee of delegated write grant (issuer_auth_public_key = dwg_grantee)');
+        error('credentials issuer must be an issuer of delegated write grant (issuer_auth_public_key = dwg_issuer_public_key)');
     }
 
     $dwg_owner_found bool := false;
