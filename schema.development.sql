@@ -1,3 +1,9 @@
+-- PRIVILEGE SETTINGS
+
+-- REVOKE IF GRANTED SELECT ON main FROM default;
+-- GRANT IF NOT GRANTED SELECT ON main TO default;
+
+
 -- EXTENSION INITIALIZATION
 
 USE IF NOT EXISTS idos AS idos;
@@ -157,9 +163,11 @@ CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_en
 };
 
 CREATE OR REPLACE ACTION get_user() PUBLIC VIEW RETURNS (id UUID, recipient_encryption_public_key TEXT) {
-    return SELECT id, recipient_encryption_public_key FROM users
+    for $row in SELECT id, recipient_encryption_public_key FROM users
         WHERE id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
-            OR (wallet_type = 'NEAR' AND public_key = @caller));
+            OR (wallet_type = 'NEAR' AND public_key = @caller)) {
+        return $row.id, $row.recipient_encryption_public_key;
+    }
 };
 
 CREATE OR REPLACE ACTION get_user_as_inserter($id UUID) PUBLIC VIEW RETURNS (id UUID, recipient_encryption_public_key TEXT, inserter TEXT) {
