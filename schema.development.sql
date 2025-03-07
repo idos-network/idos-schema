@@ -580,7 +580,7 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
     $dag_signed_by_user bool := false;
     for $row2 in SELECT 1 from wallets
             WHERE wallet_type = 'EVM'
-            AND address=$dag_owner_wallet_identifier COLLATE NOCASE
+            AND address = $dag_owner_wallet_identifier COLLATE NOCASE
             AND user_id = $user_id {
         $dag_signed_by_user := true;
         break;
