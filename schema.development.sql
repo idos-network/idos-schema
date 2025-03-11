@@ -189,12 +189,12 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $signature TEXT
 ) PUBLIC {
     if $wallet_type = 'NEAR' AND $public_key is null {
-        ERROR('NEAR wallets require a public_key to be given');
+        error('NEAR wallets require a public_key to be given');
     }
 
     if $wallet_type = 'NEAR' {
         if !idos.is_valid_public_key($public_key, $wallet_type) {
-            ERROR('invalid or unsupported public key');
+            error('invalid or unsupported public key');
         }
     }
 
@@ -217,12 +217,12 @@ CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $
     $wallet_type = idos.determine_wallet_type($address);
 
     if $wallet_type = 'NEAR' AND $public_key is null {
-        ERROR('NEAR wallets require a public_key to be given');
+        error('NEAR wallets require a public_key to be given');
     }
 
     if $wallet_type = 'NEAR' {
         if !idos.is_valid_public_key($public_key, $wallet_type) {
-            ERROR('invalid or unsupported public key');
+            error('invalid or unsupported public key');
         }
     }
 
@@ -411,7 +411,7 @@ CREATE OR REPLACE ACTION edit_credential (
                     WHERE c.id = $id
                     AND c.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                         OR (wallet_type = 'NEAR' AND public_key = @caller)) {
-        ERROR('Can not edit shared credential');
+        error('Can not edit shared credential');
     }
 
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
