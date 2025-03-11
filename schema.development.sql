@@ -188,11 +188,11 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $message TEXT,
     $signature TEXT
 ) PUBLIC {
-    if $wallet_type = 'NEAR' AND $public_key is null {
-        error('NEAR wallets require a public_key to be given');
-    }
-
     if $wallet_type = 'NEAR' {
+        if $public_key is null {
+            error('NEAR wallets require a public_key to be given');
+        }
+
         if !idos.is_valid_public_key($public_key, $wallet_type) {
             error('invalid or unsupported public key');
         }
