@@ -1,7 +1,7 @@
 -- PRIVILEGE SETTINGS
 
+-- This is temporary disabled until Kwil fixes action getting access rights for kwil-js
 -- REVOKE IF GRANTED SELECT ON main FROM default;
--- GRANT IF NOT GRANTED SELECT ON main TO default;
 
 
 -- EXTENSION INITIALIZATION
