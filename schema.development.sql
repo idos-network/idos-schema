@@ -1,6 +1,7 @@
 -- PRIVILEGE SETTINGS
 
-REVOKE IF GRANTED SELECT ON main FROM default;
+-- REVOKE IF GRANTED SELECT ON main FROM default;
+-- GRANT IF NOT GRANTED SELECT ON main TO default;
 
 
 -- EXTENSION INITIALIZATION
@@ -380,7 +381,7 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
         );
 };
 
-CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID) PUBLIC VIEW RETURNS table (
+CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $encryptor_public_key TEXT) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
     public_notes TEXT,
@@ -388,13 +389,24 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID) PUBLIC VI
     issuer_auth_public_key TEXT,
     inserter TEXT,
     original_id UUID) {
-    return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
-        FROM credentials AS c
-        INNER JOIN access_grants as ag ON c.id = ag.data_id
-        INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
-        INNER JOIN credentials as oc ON oc.id = sc.original_id
-        WHERE c.user_id = $user_id
+    if $encryptor_public_key is null {
+      return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
+          FROM credentials AS c
+          INNER JOIN access_grants as ag ON c.id = ag.data_id
+          INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
+          INNER JOIN credentials as oc ON oc.id = sc.original_id
+          WHERE c.user_id = $user_id
+              AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
+    } else {
+        return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
+          FROM credentials AS c
+          INNER JOIN access_grants as ag ON c.id = ag.data_id
+          INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
+          INNER JOIN credentials as oc ON oc.id = sc.original_id
+          WHERE c.user_id = $user_id
+            AND c.encryptor_public_key = $encryptor_public_key
             AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
+    }
 };
 
 CREATE OR REPLACE ACTION edit_credential (
@@ -1010,7 +1022,7 @@ CREATE OR REPLACE ACTION get_access_grants_owned () PUBLIC VIEW RETURNS table (
 -- As arguments can be undefined (user can not send them at all), we have to have default values: page=1, size=20
 -- Page number starts from 1, as UI usually shows to user in pagination element
 -- Ordering is consistent because we use height as first ordering parameter
-CREATE OR REPLACE ACTION get_access_grants_granted ($page INT, $size INT) PUBLIC VIEW RETURNS table (
+CREATE OR REPLACE ACTION get_access_grants_granted ($user_id UUID, $page INT, $size INT) PUBLIC VIEW RETURNS table (
     id UUID,
     ag_owner_user_id UUID,
     ag_grantee_wallet_identifier TEXT,
@@ -1036,14 +1048,30 @@ CREATE OR REPLACE ACTION get_access_grants_granted ($page INT, $size INT) PUBLIC
 
     $offset int := $index * $limit;
 
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id FROM access_grants
-        WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
+    if $user_id is null {
+      return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id
+        FROM access_grants
+        WHERE ag_grantee_wallet_identifier = @caller COLLATE NOCASE
+        ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
+    } else {
+      return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id
+        FROM access_grants
+        WHERE ag_owner_user_id = $user_id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE
+        ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
+    }
 };
 
--- TODO: refactor to return single value instead of a table
-CREATE OR REPLACE ACTION get_access_grants_granted_count () PUBLIC VIEW RETURNS table (count INT) {
-    return SELECT COUNT(1) as count FROM access_grants
-        WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE;
+CREATE OR REPLACE ACTION get_access_grants_granted_count ($user_id UUID) PUBLIC VIEW RETURNS (count INT) {
+    if $user_id is null {
+      for $row in SELECT COUNT(1) as count FROM access_grants WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE {
+        return $row.count;
+      }
+    } else {
+      for $row in SELECT COUNT(1) as count FROM access_grants
+        WHERE ag_owner_user_id = $user_id AND ag_grantee_wallet_identifier =  @caller COLLATE NOCASE {
+        return $row.count;
+      }
+    }
 };
 
 CREATE OR REPLACE ACTION has_locked_access_grants($id UUID) PUBLIC VIEW RETURNS (has BOOL) {
