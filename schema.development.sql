@@ -1,7 +1,6 @@
 -- PRIVILEGE SETTINGS
 
--- This is temporary disabled until Kwil fixes action getting access rights for kwil-js
--- REVOKE IF GRANTED SELECT ON main FROM default;
+REVOKE IF GRANTED SELECT ON main FROM default;
 
 
 -- EXTENSION INITIALIZATION
@@ -215,7 +214,7 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
 };
 
 CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $message TEXT, $signature TEXT) PUBLIC {
-    $wallet_type = idos.determine_wallet_type($address);
+    $wallet_type := idos.determine_wallet_type($address);
 
     if $wallet_type = 'NEAR' AND $public_key is null {
         error('NEAR wallets require a public_key to be given');
