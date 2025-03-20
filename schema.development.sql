@@ -1166,7 +1166,7 @@ CREATE OR REPLACE ACTION create_access_grant(
     }
 
     for $row3 in SELECT 1 FROM access_grants WHERE id = uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::UUID, format('%s-%s-%s', $grantee_wallet_identifier, $data_id, $locked_until::TEXT)) {
-        error('a grant with the same grantee, original_credential_id, and locked_until already exists');
+        error('a grant with the same grantee, copy_credential_id, and locked_until already exists');
     }
 
 
