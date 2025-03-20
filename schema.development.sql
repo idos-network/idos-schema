@@ -380,7 +380,7 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
         );
 };
 
-CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $encryptor_public_key TEXT) PUBLIC VIEW RETURNS table (
+CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $issuer_auth_public_key TEXT) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
     public_notes TEXT,
@@ -388,7 +388,7 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $encrypto
     issuer_auth_public_key TEXT,
     inserter TEXT,
     original_id UUID) {
-    if $encryptor_public_key is null {
+    if $issuer_auth_public_key is null {
       return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
           FROM credentials AS c
           INNER JOIN access_grants as ag ON c.id = ag.data_id
@@ -403,7 +403,7 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $encrypto
           INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
           INNER JOIN credentials as oc ON oc.id = sc.original_id
           WHERE c.user_id = $user_id
-            AND c.encryptor_public_key = $encryptor_public_key
+            AND c.issuer_auth_public_key = $issuer_auth_public_key
             AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
     }
 };
@@ -1055,7 +1055,8 @@ CREATE OR REPLACE ACTION get_access_grants_granted ($user_id UUID, $page INT, $s
     } else {
       return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id
         FROM access_grants
-        WHERE ag_owner_user_id = $user_id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE
+        WHERE ag_grantee_wallet_identifier = @caller COLLATE NOCASE
+            AND ag_owner_user_id = $user_id
         ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
     }
 };
@@ -1067,7 +1068,8 @@ CREATE OR REPLACE ACTION get_access_grants_granted_count ($user_id UUID) PUBLIC 
       }
     } else {
       for $row in SELECT COUNT(1) as count FROM access_grants
-        WHERE ag_owner_user_id = $user_id AND ag_grantee_wallet_identifier =  @caller COLLATE NOCASE {
+        WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE
+            AND ag_owner_user_id = $user_id {
         return $row.count;
       }
     }
