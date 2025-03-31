@@ -35,15 +35,21 @@ CREATE TABLE IF NOT EXISTS credentials (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL,
     verifiable_credential_id TEXT,
-    public_notes TEXT NOT NULL,
+    public_notes_id UUID NOT NULL,
     content TEXT NOT NULL,
     encryptor_public_key TEXT NOT NULL,
     issuer_auth_public_key TEXT NOT NULL,
     inserter TEXT,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (public_notes_id) REFERENCES public_notes(id) ON DELETE RESTRICT
 );
 CREATE INDEX IF NOT EXISTS credentials_user_id ON credentials(user_id);
 CREATE INDEX IF NOT EXISTS credentials_vc_id ON credentials(verifiable_credential_id);
+
+CREATE TABLE IF NOT EXISTS public_notes (
+    id UUID PRIMARY KEY,
+    notes TEXT
+);
 
 CREATE TABLE IF NOT EXISTS shared_credentials (
     original_id UUID NOT NULL,
@@ -310,12 +316,18 @@ CREATE OR REPLACE ACTION upsert_credential_as_inserter (
 
     $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
 
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
+    if credential_exist($id) {
+        UPDATE public_notes SET notes = $public_notes WHERE id = public_notes_id($id);
+    } else {
+        INSERT INTO public_notes (id, notes) VALUES (public_notes_id($id), $public_notes);
+    }
+
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes_id, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $id,
         $user_id,
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
-        $public_notes,
+        public_notes_id($id),
         $content,
         $encryptor_public_key,
         $issuer_auth_public_key,
@@ -324,7 +336,6 @@ CREATE OR REPLACE ACTION upsert_credential_as_inserter (
     ON CONFLICT(id) DO UPDATE
     SET user_id=$user_id,
         verifiable_credential_id=(CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END),
-        public_notes=$public_notes,
         content=$content,
         encryptor_public_key=$encryptor_public_key,
         issuer_auth_public_key=$issuer_auth_public_key,
@@ -347,14 +358,16 @@ CREATE OR REPLACE ACTION add_credential (
 
     $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
 
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key)
+    INSERT INTO public_notes (id, notes) VALUES (public_notes_id($id), $public_notes);
+
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes_id, content, encryptor_public_key, issuer_auth_public_key)
     VALUES (
         $id,
         (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)
         ),
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
-        $public_notes,
+        public_notes_id($id),
         $content,
         $encryptor_public_key,
         $issuer_auth_public_key
@@ -369,10 +382,11 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
     inserter TEXT,
     original_id UUID
 ) {
-    return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.issuer_auth_public_key, c.inserter, sc.original_id
+    return SELECT DISTINCT c.id, c.user_id, pn.notes, c.issuer_auth_public_key, c.inserter, sc.original_id
         FROM credentials AS c
         LEFT JOIN shared_credentials AS sc ON c.id = sc.copy_id
         INNER JOIN wallets ON c.user_id = wallets.user_id
+        INNER JOIN public_notes AS pn ON c.public_notes_id = pn.id
         WHERE (
             wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
         ) OR (
@@ -389,19 +403,19 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $issuer_a
     inserter TEXT,
     original_id UUID) {
     if $issuer_auth_public_key is null {
-      return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
+      return SELECT DISTINCT c.id, c.user_id, pn.notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
           FROM credentials AS c
           INNER JOIN access_grants as ag ON c.id = ag.data_id
           INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
-          INNER JOIN credentials as oc ON oc.id = sc.original_id
+          INNER JOIN public_notes AS pn ON c.public_notes_id = pn.id
           WHERE c.user_id = $user_id
               AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
     } else {
-        return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
+        return SELECT DISTINCT c.id, c.user_id, pn.notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
           FROM credentials AS c
           INNER JOIN access_grants as ag ON c.id = ag.data_id
           INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
-          INNER JOIN credentials as oc ON oc.id = sc.original_id
+          INNER JOIN public_notes AS pn ON c.public_notes_id = pn.id
           WHERE c.user_id = $user_id
             AND c.issuer_auth_public_key = $issuer_auth_public_key
             AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
@@ -417,6 +431,10 @@ CREATE OR REPLACE ACTION edit_credential (
     $encryptor_public_key TEXT,
     $issuer_auth_public_key TEXT
 ) PUBLIC {
+    if !credential_belongs_to_caller($id) {
+        error('the credential does not belong to the caller');
+    }
+
     for $row in SELECT 1 from credentials AS c
                     INNER JOIN shared_credentials AS sc on c.id = sc.copy_id
                     WHERE c.id = $id
@@ -433,8 +451,7 @@ CREATE OR REPLACE ACTION edit_credential (
     $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
 
     UPDATE credentials
-    SET public_notes=$public_notes,
-        verifiable_credential_id = (CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END),
+    SET verifiable_credential_id = (CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END),
         content=$content,
         encryptor_public_key=$encryptor_public_key,
         issuer_auth_public_key=$issuer_auth_public_key
@@ -442,15 +459,26 @@ CREATE OR REPLACE ACTION edit_credential (
     AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
+
+    UPDATE public_notes SET notes = $public_notes WHERE id = public_notes_id($id);
 };
 
 -- Be aware that @caller here is ed25519 public key, hex encoded.
 -- All other @caller in the schema are either secp256k1 or nep413
 -- This action can't be called by kwil-cli (as kwil-cli uses secp256k1 only)
+-- $public_notes_id argument technically is verifiable_credential_id from a credential, not public_notes_id from public_notes table
 CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $public_notes TEXT) PUBLIC {
-    UPDATE credentials SET public_notes = $public_notes
-    WHERE issuer_auth_public_key = @caller
-        AND verifiable_credential_id = $public_notes_id;
+    $credential_id UUID;
+
+    for $row in SELECT id FROM credentials WHERE issuer_auth_public_key = @caller AND verifiable_credential_id = $public_notes_id {
+        $credential_id := $row.id;
+    }
+
+    if $credential_id is null {
+        error('no credentials for this public_notes_id found');
+    }
+
+    UPDATE public_notes SET notes = $public_notes WHERE id = public_notes_id($credential_id);
 };
 
 CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
@@ -468,6 +496,16 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
     );
 
     DELETE FROM access_grants WHERE data_id = $id;
+
+    -- If no more credentials related to this public_notes, delete the public_notes
+    $siblings_count := 0;
+    for $row in SELECT count(1) AS count FROM credentials WHERE public_notes_id = public_notes_id($id) {
+        $siblings_count := $row.count;
+    }
+
+    if $siblings_count == 0 {
+        DELETE FROM public_notes WHERE id = public_notes_id($id);
+    }
 };
 
 CREATE OR REPLACE ACTION share_credential (
@@ -490,15 +528,25 @@ CREATE OR REPLACE ACTION share_credential (
         error('shared credentials cannot have public_notes, it must be an empty string');
     }
 
-    add_credential(
+    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
+    if !$result {
+        error('signature is wrong');
+    }
+
+    -- create credential copy
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes_id, content, encryptor_public_key, issuer_auth_public_key)
+    VALUES (
         $id,
-        $issuer_auth_public_key,
-        $encryptor_public_key,
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)
+        ),
+        NULL, -- don't set VC's id for a copy
+        public_notes_id($original_credential_id),
         $content,
-        $public_notes,
-        $public_notes_signature,
-        $broader_signature
-    );
+        $encryptor_public_key,
+        $issuer_auth_public_key
+    )
+
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 
     create_access_grant(
@@ -530,15 +578,23 @@ CREATE OR REPLACE ACTION create_credential_copy(
         error('shared credentials cannot have public_notes, it must be an empty string');
     }
 
-    add_credential(
+    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
+    if !$result {
+        error('signature is wrong');
+    }
+
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes_id, content, encryptor_public_key, issuer_auth_public_key)
+    VALUES (
         $id,
-        $issuer_auth_public_key,
-        $encryptor_public_key,
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = @caller)
+        ),
+        NULL, -- don't set VC's id for a copy
+        public_notes_id($original_credential_id),
         $content,
-        $public_notes,
-        $public_notes_signature,
-        $broader_signature
-    );
+        $encryptor_public_key,
+        $issuer_auth_public_key
+    )
     INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
 };
 
@@ -599,15 +655,13 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
         error('the DAG is not signed by the user');
     }
 
-    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
-
     $inserter := get_inserter_or_null();
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes_id, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $id,
         $user_id,
-        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
-        $public_notes,
+        NULL, -- don't set VC's id for a copy
+        public_notes_id(original_credential_id),
         $content,
         $encryptor_public_key,
         $issuer_auth_public_key,
@@ -723,13 +777,15 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     -- Insert original credential
     $verifiable_credential_id = idos.get_verifiable_credential_id($original_public_notes);
 
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
+    INSERT INTO public_notes (id, notes) VALUES (public_notes_id($original_credential_id), $original_public_notes);
+
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes_id, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $original_credential_id,
         (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
-        $original_public_notes,
+        public_notes_id($original_credential_id),
         $original_content,
         $original_encryptor_public_key,
         $issuer_auth_public_key,
@@ -737,13 +793,13 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     );
 
     -- Insert copy credential
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes_id, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $copy_credential_id,
         (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
-        NULL,
-        '',
+        NULL, -- don't set VC's id for a copy
+        public_notes_id($original_credential_id),
         $copy_content,
         $copy_encryptor_public_key,
         $issuer_auth_public_key,
@@ -798,9 +854,10 @@ CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS tab
     issuer_auth_public_key TEXT,
     inserter TEXT
 ) {
-    return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.content, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter
+    return SELECT DISTINCT c.id, c.user_id, pn.public_notes, c.content, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter
         FROM credentials AS c
         INNER JOIN wallets ON c.user_id = wallets.user_id
+        INNER JOIN public_notes AS pn ON c.public_notes_id = pn.id
         WHERE c.id = $id
         AND (
             (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
@@ -833,10 +890,10 @@ CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS ta
         error('the credential is not shared with the caller');
     }
 
-    return SELECT c.id, c.user_id, oc.public_notes, c.content, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter
+    return SELECT c.id, c.user_id, pn.public_notes, c.content, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter
         FROM credentials AS c
         LEFT JOIN shared_credentials ON c.id = shared_credentials.copy_id
-        LEFT JOIN credentials as oc ON shared_credentials.original_id = oc.id
+        INNER JOIN public_notes AS pn ON c.public_notes_id = pn.id
         WHERE c.id = $id;
     };
 
@@ -1217,6 +1274,10 @@ CREATE OR REPLACE ACTION has_profile($address TEXT) PUBLIC VIEW returns (has_pro
 
     return false;
 };
+
+CREATE OR REPLACE ACTION public_notes_id($credential_id UUID) PRIVATE RETURNS (id UUID) {
+    return uuid_generate_v5('31276fd4-105f-4ff7-9f64-644942c14b79'::UUID, format('public-notes-for-credential:%s', $credential_id::TEXT));
+}
 
 
 -- OWNER ACTIONS FOR MANUAL MIGRATIONS
