@@ -98,6 +98,16 @@ CREATE TABLE IF NOT EXISTS consumed_write_grants (
     FOREIGN KEY (copy_credential_id) REFERENCES credentials(id) ON DELETE SET NULL
 );
 
+CREATE TABLE IF NOT EXISTS consumed_insert_grants (
+    id UUID PRIMARY KEY,
+    owner_wallet_identifier TEXT NOT NULL, -- user wallet/pk
+    issuer_public_key TEXT NOT NULL,
+    credential_id UUID,
+    not_usable_before TEXT,
+    not_usable_after TEXT,
+    FOREIGN KEY (credential_id) REFERENCES credentials(id) ON DELETE SET NULL,
+);
+
 CREATE TABLE IF NOT EXISTS access_grants (
     id UUID PRIMARY KEY,
     ag_owner_user_id UUID NOT NULL,
@@ -358,6 +368,101 @@ CREATE OR REPLACE ACTION add_credential (
         $content,
         $encryptor_public_key,
         $issuer_auth_public_key
+    );
+};
+
+CREATE OR REPLACE ACTION insert_credential_by_dig(
+    $id UUID,
+    $content TEXT,
+    $public_notes TEXT,
+    $public_notes_signature TEXT,
+    $issuer_auth_public_key TEXT,
+    $encryptor_public_key TEXT,
+    $dig_owner TEXT,
+    $dig_id UUID,
+    $dig_not_before TEXT,
+    $dig_not_after TEXT,
+    $dig_signature TEXT) PUBLIC {
+
+    $dig_owner_found bool := false;
+    for $row1 in SELECT 1 FROM wallets WHERE (wallet_type = 'EVM' AND address=$dig_owner COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $dig_owner) {
+        $dig_owner_found := true;
+        break;
+    }
+    if !$dig_owner_found {
+        error('dig_owner not found');
+    }
+
+    -- Check the format and precedence
+    -- Will fail if times are not in the RFC3339 format
+    if !idos.validate_not_usable_times($dig_not_before, $dig_not_after) {
+        error('dig_not_before must be before dig_not_after');
+    }
+
+    -- Check if current block timestamp in time range allowed by an insert grant.
+    -- @block_timestamp is a timestamp of previous block, which is can be a few seconds earlier
+    -- (max is 6 seconds in current network consensus settings) then a time on a requester's machine.
+    -- Also, if requester's machine has wrong time, it can be an issue.
+    if parse_unix_timestamp($dig_not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int > (@block_timestamp + 6)
+            OR @block_timestamp > parse_unix_timestamp($dig_not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int {
+
+        error('this insert grant can only be used after dig_not_before and before dig_not_after');
+    }
+
+    $dig_result = idos.dig_verify_owner(
+        $dig_owner,
+        $issuer_auth_public_key,
+        $dig_id::TEXT,
+        $dig_not_before,
+        $dig_not_after,
+        $dig_signature
+    );
+    if !$dig_result {
+        error('verify owner failed');
+    }
+
+    $cred_result = idos.assert_credential_signatures(
+        $issuer_auth_public_key,
+        $public_notes,
+        $public_notes_signature,
+        $content,
+        $broader_signature
+    );
+    if !$cred_result {
+        error('credential signature is wrong');
+    }
+
+    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
+
+    -- TODO: change to a new public_notes approach when merge public_notes PR
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
+    VALUES (
+        $id,
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dig_owner COLLATE NOCASE)
+            OR (wallet_type = 'NEAR' AND public_key = $dig_owner)),
+        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
+        $public_notes,
+        $content,
+        $encryptor_public_key,
+        $issuer_auth_public_key,
+        $dig_id::TEXT
+    );
+
+    INSERT INTO consumed_insert_grants (
+        id,
+        owner_wallet_identifier,
+        issuer_public_key,
+        credential_id,
+        not_usable_before,
+        not_usable_after
+    ) VALUES (
+        $dig_id,
+        $dig_owner,
+        $issuer_auth_public_key,
+        $id,
+        $dig_not_before,
+        $dig_not_after
     );
 };
 
@@ -945,7 +1050,7 @@ CREATE OR REPLACE ACTION share_attribute($id UUID, $original_attribute_id UUID, 
 };
 
 
--- WRITE GRANTS ACTIONS
+-- DELEGATED WRITE GRANTS ACTIONS
 
 CREATE OR REPLACE ACTION dwg_message(
     $owner_wallet_identifier TEXT,
@@ -970,6 +1075,30 @@ CREATE OR REPLACE ACTION dwg_message(
         $issuer_public_key,
         $id::TEXT,
         $access_grant_timelock,
+        $not_usable_before,
+        $not_usable_after
+    );
+};
+
+-- DELEGATED INSERT GRANTS ACTIONS
+
+CREATE OR REPLACE ACTION dig_message(
+    $owner_wallet_identifier TEXT,
+    $issuer_public_key TEXT,
+    $id UUID,
+    $not_usable_before TEXT, -- Must be in yyyy-mm-ddThh:mm:ssZ format
+    $not_usable_after TEXT -- Must be in yyyy-mm-ddThh:mm:ssZ format
+) PUBLIC VIEW returns (message TEXT) {
+    -- Check the format and precedence
+    -- Will fail if a time not in the yyyy-mm-ddThh:mm:ssZ format, and not comply to RFC3339
+    if !idos.validate_not_usable_times($not_usable_before, $not_usable_after) {
+        error('not_usable_before must be before not_usable_after');
+    }
+
+    return idos.dig_message(
+        $owner_wallet_identifier,
+        $issuer_public_key,
+        $id::TEXT,
         $not_usable_before,
         $not_usable_after
     );
@@ -1278,4 +1407,10 @@ $not_usable_before TEXT, $not_usable_after TEXT) OWNER PUBLIC {
         copy_credential_id, access_grant_timelock, not_usable_before, not_usable_after)
     VALUES ($id, $owner_wallet_identifier, $grantee_wallet_identifier, $issuer_public_key, $original_credential_id,
         $copy_credential_id, $access_grant_timelock, $not_usable_before, $not_usable_after);
+};
+
+CREATE OR REPLACE ACTION insert_consumed_igs_as_owner($id UUID, $owner_wallet_identifier TEXT, $issuer_public_key TEXT,
+$credential_id UUID, $not_usable_before TEXT, $not_usable_after TEXT) OWNER PUBLIC {
+    INSERT INTO consumed_insert_grants (id, owner_wallet_identifier, issuer_public_key, credential_id, not_usable_before, not_usable_after)
+    VALUES ($id, $owner_wallet_identifier, $issuer_public_key, $credential_id, $not_usable_before, $not_usable_after);
 };
