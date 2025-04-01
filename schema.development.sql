@@ -1297,14 +1297,14 @@ CREATE OR REPLACE ACTION insert_credential_as_owner (
     $id UUID,
     $user_id UUID,
     $verifiable_credential_id TEXT,
-    $public_notes TEXT,
+    $public_notes_id UUID,
     $content TEXT,
     $encryptor_public_key TEXT,
     $issuer_auth_public_key TEXT,
     $inserter TEXT
 ) OWNER PUBLIC {
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
-    VALUES ($id, $user_id, $verifiable_credential_id, $public_notes, $content, $encryptor_public_key, $issuer_auth_public_key, $inserter);
+    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes_id, content, encryptor_public_key, issuer_auth_public_key, inserter)
+    VALUES ($id, $user_id, $verifiable_credential_id, $public_notes_id, $content, $encryptor_public_key, $issuer_auth_public_key, $inserter);
 };
 
 CREATE OR REPLACE ACTION insert_shared_cred_as_owner($original_id UUID, $copy_id UUID) OWNER PUBLIC {
@@ -1340,3 +1340,9 @@ $not_usable_before TEXT, $not_usable_after TEXT) OWNER PUBLIC {
     VALUES ($id, $owner_wallet_identifier, $grantee_wallet_identifier, $issuer_public_key, $original_credential_id,
         $copy_credential_id, $access_grant_timelock, $not_usable_before, $not_usable_after);
 };
+
+CREATE OR REPLACE ACTION insert_public_notes_as_owner($id UUID, $notes TEXT) OWNER PUBLIC {
+    INSERT INTO public_notes (id, notes)
+    VALUES ($id, $notes);
+};
+
