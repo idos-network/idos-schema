@@ -417,12 +417,18 @@ CREATE OR REPLACE ACTION edit_credential (
     $encryptor_public_key TEXT,
     $issuer_auth_public_key TEXT
 ) PUBLIC {
-    for $row in SELECT 1 from credentials AS c
+    -- we forbid to edit a copy
+    -- only copies can have AGs, so data_id in AGs is a id of a copy
+    for $row1 in SELECT 1 from access_grants WHERE data_id = $id {
+        error('can not edit shared credential');
+    }
+    -- if $id is shared_credentials.copy_id - it is a copy
+    for $row2 in SELECT 1 from credentials AS c
                     INNER JOIN shared_credentials AS sc on c.id = sc.copy_id
                     WHERE c.id = $id
                     AND c.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                         OR (wallet_type = 'NEAR' AND public_key = @caller)) {
-        error('Can not edit shared credential');
+        error('can not edit shared credential');
     }
 
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
