@@ -418,7 +418,7 @@ CREATE OR REPLACE ACTION edit_credential (
     $issuer_auth_public_key TEXT
 ) PUBLIC {
     -- we forbid to edit a copy
-    -- only copies can have AGs, so data_id in AGs is a id of a copy
+    -- only copies can have AGs, so data_id in AGs is id of a copy
     for $row1 in SELECT 1 from access_grants WHERE data_id = $id {
         error('can not edit shared credential');
     }
