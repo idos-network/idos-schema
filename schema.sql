@@ -115,6 +115,75 @@ CREATE INDEX IF NOT EXISTS ag_grantee_content_hash ON access_grants(ag_grantee_w
 CREATE INDEX IF NOT EXISTS ag_owner_user_id ON access_grants(ag_owner_user_id);
 
 
+-- Passporting club tables
+CREATE TABLE IF NOT EXISTS passporting_clubs (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL -- For participants to be able to choose which clubs to use
+);
+
+CREATE TABLE IF NOT EXISTS passporting_clubs_passporting_peers (
+    passporting_club_id UUID NOT NULL,
+    passporting_peer_id UUID NOT NULL,
+    PRIMARY KEY (passporting_club_id, passporting_peer_id),
+    FOREIGN KEY (passporting_club_id) REFERENCES passporting_clubs(id) ON DELETE CASCADE,
+    FOREIGN KEY (passporting_peer_id) REFERENCES passporting_peers(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS passporting_peers (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL, -- Just for the human admins to know who's who
+    issuer_public_key TEXT NOT NULL, -- issuer's identifier (@caller)
+    passporting_server_url_base TEXT NOT NULL
+);
+
+
+-- PASSPORTING CLUB ACTIONS
+
+CREATE OR REPLACE ACTION add_passporting_club_as_owner($id UUID, $name TEXT) OWNER PUBLIC {
+    INSERT INTO passporting_clubs (id, name) VALUES ($id, $name);
+};
+
+CREATE OR REPLACE ACTION delete_passporting_club_as_owner($id UUID) OWNER PUBLIC {
+    DELETE FROM passporting_clubs WHERE id = $id;
+};
+
+CREATE OR REPLACE ACTION add_passporting_peer_as_owner(
+    $id UUID,
+    $name TEXT,
+    $issuer_public_key TEXT,
+    $passporting_server_url_base TEXT
+) OWNER PUBLIC {
+    INSERT INTO passporting_peers (id, name, issuer_public_key, passporting_server_url_base)
+        VALUES ($id, $name, $issuer_public_key, $passporting_server_url_base);
+};
+
+CREATE OR REPLACE ACTION delete_passporting_peer_as_owner($id UUID) OWNER PUBLIC {
+    DELETE FROM passporting_peers WHERE id = $id;
+};
+
+CREATE OR REPLACE ACTION update_passporting_peer_as_owner(
+    $id UUID,
+    $name TEXT,
+    $issuer_public_key TEXT,
+    $passporting_server_url_base TEXT
+) OWNER PUBLIC {
+    UPDATE passporting_peers SET name=$name, issuer_public_key=$issuer_public_key, passporting_server_url_base=$passporting_server_url_base
+        WHERE id = $id;
+};
+
+CREATE OR REPLACE ACTION add_passporting_peer_to_club_as_owner($passporting_club_id UUID, $passporting_peer_id UUID) OWNER PUBLIC {
+    INSERT INTO passporting_clubs_passporting_peers (passporting_club_id, passporting_peer_id)
+        VALUES ($passporting_club_id, $passporting_peer_id);
+};
+
+CREATE OR REPLACE ACTION delete_passporting_peer_from_club_as_owner($passporting_club_id UUID, $passporting_peer_id UUID) OWNER PUBLIC {
+    DELETE FROM passporting_clubs_passporting_peers
+        WHERE passporting_club_id = $passporting_club_id AND passporting_peer_id = $passporting_peer_id;
+};
+
+
+
+
 -- INSERTER AND DELEGATE ACTIONS
 
 CREATE OR REPLACE ACTION add_inserter_as_owner($id UUID, $name TEXT) OWNER PUBLIC {
