@@ -510,6 +510,7 @@ CREATE OR REPLACE ACTION share_credential (
     $public_notes_signature TEXT,
     $broader_signature TEXT,
     $content TEXT,
+    $content_hash TEXT,
     $encryptor_public_key TEXT,
     $issuer_auth_public_key TEXT,
     $grantee_wallet_identifier TEXT,
@@ -538,7 +539,7 @@ CREATE OR REPLACE ACTION share_credential (
         $grantee_wallet_identifier,
         $id,
         $locked_until::int,
-        null,
+        $content_hash,
         'user',
         @caller
     );
@@ -582,6 +583,7 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
     $issuer_auth_public_key TEXT,
     $encryptor_public_key TEXT,
     $content TEXT,
+    $content_hash TEXT,
     $public_notes TEXT,
     $public_notes_signature TEXT,
     $broader_signature TEXT,
@@ -653,7 +655,7 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
         $dag_grantee_wallet_identifier,
         $id,
         $dag_locked_until::int,
-        null,
+        $content_hash,
         'dag_message',
         @caller
     );
