@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS wallets (
 CREATE INDEX IF NOT EXISTS wallets_user_id ON wallets(user_id);
 CREATE INDEX IF NOT EXISTS wallets_evm_scan ON wallets(wallet_type, address);
 CREATE INDEX IF NOT EXISTS wallets_near_scan ON wallets(wallet_type, public_key);
-CREATE INDEX IF NOT EXISTS wallets_stellar_scan ON wallets(wallet_type, address);
+CREATE INDEX IF NOT EXISTS wallets_stellar_scan ON wallets(wallet_type, public_key);
 
 CREATE TABLE IF NOT EXISTS credentials (
     id UUID PRIMARY KEY,
