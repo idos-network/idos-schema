@@ -6,3 +6,5 @@ passporting
 permissioned
 secp256k1
 timelock
+xrpl
+XRPL
