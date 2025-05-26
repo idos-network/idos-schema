@@ -1323,9 +1323,11 @@ CREATE OR REPLACE ACTION get_passporting_peers() VIEW PUBLIC returns table (
     id UUID,
     name TEXT,
     issuer_public_key TEXT,
-    passporting_server_url_base TEXT
+    passporting_server_url_base TEXT,
+    club_id UUID,
+    club_name TEXT
 ) {
-    WITH input_peer_clubs AS (
+    return WITH input_peer_clubs AS (
         -- get clubs the peer belongs to
         SELECT passporting_club_id
         FROM pass_clubs_pass_peers
@@ -1333,7 +1335,7 @@ CREATE OR REPLACE ACTION get_passporting_peers() VIEW PUBLIC returns table (
             SELECT id FROM passporting_peers WHERE issuer_public_key = @caller COLLATE NOCASE
         )
     )
-    SELECT p.id, p.name, p.issuer_public_key, pc.id AS club_id, pc.name AS club_name
+    SELECT p.id, p.name, p.issuer_public_key, p.passporting_server_url_base, pc.id AS club_id, pc.name AS club_name
     FROM passporting_peers p
     JOIN pass_clubs_pass_peers pcp ON p.id = pcp.passporting_peer_id
     JOIN passporting_clubs pc ON pcp.passporting_club_id = pc.id
