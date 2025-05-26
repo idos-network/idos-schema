@@ -163,7 +163,7 @@ CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_en
 
 CREATE OR REPLACE ACTION get_user() PUBLIC VIEW RETURNS (id UUID, recipient_encryption_public_key TEXT) {
     for $row in SELECT id, recipient_encryption_public_key FROM users
-        WHERE id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+        WHERE id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)) {
         return $row.id, $row.recipient_encryption_public_key;
     }
@@ -263,7 +263,7 @@ CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $
     INSERT INTO wallets (id, user_id, address, public_key, wallet_type, message, signature)
     VALUES (
         $id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)
         ),
         $address,
@@ -291,7 +291,7 @@ CREATE OR REPLACE ACTION get_wallets() PUBLIC VIEW RETURNS table (
         FROM wallets AS w1
         INNER JOIN wallets AS w2 ON w1.user_id = w2.user_id
         WHERE (
-            w2.wallet_type IN ('EVM', 'XRPL') AND w2.address = @caller COLLATE NOCASE
+            w2.wallet_type = 'EVM' AND w2.address = @caller COLLATE NOCASE
         ) OR (
             w2.wallet_type = 'NEAR' AND w2.public_key = @caller
         );
@@ -300,17 +300,17 @@ CREATE OR REPLACE ACTION get_wallets() PUBLIC VIEW RETURNS table (
 CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
     for $row in SELECT id FROM wallets
         WHERE id = $id
-        AND ((wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE) OR (wallet_type = 'NEAR' AND public_key = @caller))
+        AND ((wallet_type = 'EVM' AND address=@caller COLLATE NOCASE) OR (wallet_type = 'NEAR' AND public_key = @caller))
         AND EXISTS (
             SELECT count(id) FROM wallets
-                WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE) OR (wallet_type = 'NEAR' AND public_key = @caller)
+                WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE) OR (wallet_type = 'NEAR' AND public_key = @caller)
                 GROUP BY user_id HAVING count(id) = 1
         ) {
         error('You can not delete a wallet you are connected with. To delete this wallet you have to connect other wallet.');
     }
 
     DELETE FROM wallets
-    WHERE id=$id AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+    WHERE id=$id AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
 };
@@ -377,7 +377,7 @@ CREATE OR REPLACE ACTION add_credential (
     INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key)
     VALUES (
         $id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)
         ),
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
@@ -401,7 +401,7 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
         LEFT JOIN shared_credentials AS sc ON c.id = sc.copy_id
         INNER JOIN wallets ON c.user_id = wallets.user_id
         WHERE (
-            wallets.wallet_type IN ('EVM', 'XRPL') AND wallets.address = @caller COLLATE NOCASE
+            wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
         ) OR (
             wallets.wallet_type = 'NEAR' AND wallets.public_key = @caller
         );
@@ -453,7 +453,7 @@ CREATE OR REPLACE ACTION edit_credential (
     for $row2 in SELECT 1 from credentials AS c
                     INNER JOIN shared_credentials AS sc on c.id = sc.copy_id
                     WHERE c.id = $id
-                    AND c.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+                    AND c.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                         OR (wallet_type = 'NEAR' AND public_key = @caller)) {
         error('can not edit shared credential');
     }
@@ -472,7 +472,7 @@ CREATE OR REPLACE ACTION edit_credential (
         encryptor_public_key=$encryptor_public_key,
         issuer_auth_public_key=$issuer_auth_public_key
     WHERE id=$id
-    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
 };
@@ -496,7 +496,7 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
     }
     DELETE FROM credentials
     WHERE id=$id
-    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
 
@@ -690,7 +690,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     }
 
     $dwg_owner_found bool := false;
-    for $row1 in SELECT 1 FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=$dwg_owner COLLATE NOCASE)
+    for $row1 in SELECT 1 FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = $dwg_owner) {
         $dwg_owner_found := true;
         break;
@@ -761,7 +761,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $original_credential_id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=$dwg_owner COLLATE NOCASE)
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
         $original_public_notes,
@@ -775,7 +775,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $copy_credential_id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=$dwg_owner COLLATE NOCASE)
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
         NULL,
         '',
@@ -838,7 +838,7 @@ CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS tab
         INNER JOIN wallets ON c.user_id = wallets.user_id
         WHERE c.id = $id
         AND (
-            (wallets.wallet_type IN ('EVM', 'XRPL') AND wallets.address = @caller COLLATE NOCASE)
+            (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
                 OR (wallets.wallet_type = 'NEAR' AND wallets.public_key = @caller)
         );
 };
@@ -885,7 +885,7 @@ CREATE OR REPLACE ACTION get_sibling_credential_id ($content_hash TEXT) PUBLIC V
 CREATE OR REPLACE ACTION credential_belongs_to_caller($id UUID) PRIVATE VIEW RETURNS (belongs BOOL) {
     for $row in SELECT 1 from credentials
         WHERE id = $id
-        AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+        AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)) {
         return true;
     }
@@ -913,7 +913,7 @@ CREATE OR REPLACE ACTION add_attribute($id UUID, $attribute_key TEXT, $value TEX
     INSERT INTO user_attributes (id, user_id, attribute_key, value)
     VALUES (
         $id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)
         ),
         $attribute_key,
@@ -933,7 +933,7 @@ CREATE OR REPLACE ACTION get_attributes() PUBLIC VIEW returns table (
         LEFT JOIN shared_user_attributes AS sha ON ha.id = sha.copy_id
         INNER JOIN wallets ON ha.user_id = wallets.user_id
         WHERE (
-            wallets.wallet_type IN ('EVM', 'XRPL') AND wallets.address = @caller COLLATE NOCASE
+            wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
         ) OR (
             wallets.wallet_type = 'NEAR' AND wallets.public_key = @caller
         );
@@ -943,7 +943,7 @@ CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TE
     for $row in SELECT 1 FROM user_attributes AS ha
                 INNER JOIN shared_user_attributes AS sha on ha.id = sha.copy_id
                 WHERE ha.id = $id
-                AND ha.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+                AND ha.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                     OR (wallet_type = 'NEAR' AND public_key = @caller)) {
         error('Can not edit shared attribute');
     }
@@ -951,7 +951,7 @@ CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TE
     UPDATE user_attributes
     SET attribute_key=$attribute_key, value=$value
     WHERE id=$id
-    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
 };
@@ -959,7 +959,7 @@ CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TE
 CREATE OR REPLACE ACTION remove_attribute($id UUID) PUBLIC {
     DELETE FROM user_attributes
     WHERE id=$id
-    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller)
     );
 };
@@ -968,7 +968,7 @@ CREATE OR REPLACE ACTION share_attribute($id UUID, $original_attribute_id UUID, 
     INSERT INTO user_attributes (id, user_id, attribute_key, value)
     VALUES (
         $id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)
         ),
         $attribute_key,
@@ -1016,7 +1016,7 @@ CREATE OR REPLACE ACTION dwg_message(
 CREATE OR REPLACE ACTION revoke_access_grant ($id UUID) PUBLIC {
     $ag_exist := false;
     for $row in SELECT 1 FROM access_grants WHERE id = $id
-        AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+        AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)) {
         $ag_exist := true;
     }
@@ -1027,14 +1027,14 @@ CREATE OR REPLACE ACTION revoke_access_grant ($id UUID) PUBLIC {
 
     for $row2 in SELECT 1 FROM access_grants WHERE id = $id
         AND locked_until >= @block_timestamp
-        AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+        AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller)) {
         error('the grant is locked');
     }
 
     DELETE FROM access_grants
     WHERE id = $id
-    AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+    AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
         OR (wallet_type = 'NEAR' AND public_key = @caller));
 };
 
@@ -1049,7 +1049,7 @@ CREATE OR REPLACE ACTION get_access_grants_owned () PUBLIC VIEW RETURNS table (
     inserter_id TEXT
 ) {
     return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id FROM access_grants
-        WHERE ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+        WHERE ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
             OR (wallet_type = 'NEAR' AND public_key = @caller));
 };
 
@@ -1113,7 +1113,7 @@ CREATE OR REPLACE ACTION get_access_grants_granted_count ($user_id UUID) PUBLIC 
 CREATE OR REPLACE ACTION has_locked_access_grants($id UUID) PUBLIC VIEW RETURNS (has BOOL) {
     for $ag_row in SELECT 1 FROM access_grants
             WHERE data_id = $id
-            AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type IN ('EVM', 'XRPL') AND address=@caller COLLATE NOCASE)
+            AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=@caller COLLATE NOCASE)
                 OR (wallet_type = 'NEAR' AND public_key = @caller))
             AND locked_until >= @block_timestamp LIMIT 1 {
         return true;
