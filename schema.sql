@@ -123,12 +123,12 @@ CREATE TABLE IF NOT EXISTS passporting_clubs (
 
 CREATE TABLE IF NOT EXISTS passporting_peers (
     id UUID PRIMARY KEY,
-    name TEXT NOT NULL, -- Just for the human admins to know who's who
+    name TEXT NOT NULL,
     issuer_public_key TEXT UNIQUE NOT NULL, -- issuer's identifier (@caller)
     passporting_server_url_base TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS pass_clubs_pass_peers (
+CREATE TABLE IF NOT EXISTS passporting_club_memberships (
     passporting_club_id UUID NOT NULL,
     passporting_peer_id UUID NOT NULL,
     PRIMARY KEY (passporting_club_id, passporting_peer_id),
@@ -1310,12 +1310,12 @@ CREATE OR REPLACE ACTION update_passporting_peer_as_owner(
 };
 
 CREATE OR REPLACE ACTION add_peer_to_club_as_owner($passporting_club_id UUID, $passporting_peer_id UUID) OWNER PUBLIC {
-    INSERT INTO pass_clubs_pass_peers (passporting_club_id, passporting_peer_id)
+    INSERT INTO passporting_club_memberships (passporting_club_id, passporting_peer_id)
         VALUES ($passporting_club_id, $passporting_peer_id);
 };
 
 CREATE OR REPLACE ACTION delete_peer_from_club_as_owner($passporting_club_id UUID, $passporting_peer_id UUID) OWNER PUBLIC {
-    DELETE FROM pass_clubs_pass_peers
+    DELETE FROM passporting_club_memberships
         WHERE passporting_club_id = $passporting_club_id AND passporting_peer_id = $passporting_peer_id;
 };
 
@@ -1330,14 +1330,14 @@ CREATE OR REPLACE ACTION get_passporting_peers() VIEW PUBLIC returns table (
     return WITH input_peer_clubs AS (
         -- get clubs the peer belongs to
         SELECT passporting_club_id
-        FROM pass_clubs_pass_peers
+        FROM passporting_club_memberships
         WHERE passporting_peer_id = (
             SELECT id FROM passporting_peers WHERE issuer_public_key = @caller COLLATE NOCASE
         )
     )
     SELECT p.id, p.name, p.issuer_public_key, p.passporting_server_url_base, pc.id AS club_id, pc.name AS club_name
     FROM passporting_peers p
-    JOIN pass_clubs_pass_peers pcp ON p.id = pcp.passporting_peer_id
+    JOIN passporting_club_memberships pcp ON p.id = pcp.passporting_peer_id
     JOIN passporting_clubs pc ON pcp.passporting_club_id = pc.id
     WHERE pcp.passporting_club_id IN (SELECT passporting_club_id FROM input_peer_clubs)
         AND p.issuer_public_key <> @caller COLLATE NOCASE;
