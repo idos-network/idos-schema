@@ -598,6 +598,7 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
     $original_credential_id UUID,
     $dag_owner_wallet_identifier TEXT,
     $dag_grantee_wallet_identifier TEXT,
+    $dag_owner_public_key TEXT,
     $dag_locked_until INT8,
     $dag_signature TEXT
 ) PUBLIC {
@@ -684,6 +685,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $copy_broader_signature TEXT,
     $content_hash TEXT, -- For access grant
     $dwg_owner TEXT,
+    $dwg_owner_public_key TEXT,
     $dwg_grantee TEXT,
     $dwg_issuer_public_key TEXT,
     $dwg_id UUID,
@@ -727,6 +729,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
 
     $dwg_result = idos.dwg_verify_owner(
         $dwg_owner,
+        $dwg_owner_public_key,
         $dwg_grantee,
         $dwg_issuer_public_key,
         $dwg_id::TEXT,
@@ -770,7 +773,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     VALUES (
         $original_credential_id,
         (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
-            OR (wallet_type = 'XRPL' AND address = @caller) OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
+            OR (wallet_type = 'XRPL' AND address=$dwg_owner) OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
         $original_public_notes,
         $original_content,
@@ -1152,6 +1155,7 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $dag_owner_wallet_identifier TEXT,
     $dag_grantee_wallet_identifier TEXT,
     $dag_data_id UUID,
+    $dag_owner_public_key TEXT,
     $dag_locked_until INT,
     $dag_content_hash TEXT,
     $dag_signature TEXT
@@ -1160,6 +1164,7 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $owner_verified = idos.verify_owner(
         $dag_owner_wallet_identifier,
         $dag_grantee_wallet_identifier,
+        $dag_owner_public_key,
         $dag_data_id::TEXT,
         $dag_locked_until,
         $dag_content_hash,
@@ -1173,8 +1178,9 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     for $row in SELECT 1 from credentials
             INNER JOIN wallets ON credentials.user_id = wallets.user_id
             WHERE credentials.id = $dag_data_id
-            AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE
-            AND wallets.wallet_type = 'EVM' {
+            AND ((wallets.wallet_type = 'EVM' AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE)
+                OR (wallets.wallet_type = 'XRPL' AND wallets.address = $dag_owner_wallet_identifier)
+                OR (wallets.wallet_type = 'NEAR' AND wallets.public_key = $dag_owner_public_key)) {
         $data_id_belongs_to_owner := true;
         break;
     }
