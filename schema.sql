@@ -707,7 +707,14 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
         $dwg_owner_public_key := $wallet_row.public_key;
         break;
     }
-    if $dwg_owner_public_key IS NULL {
+     -- First, determine the wallet type of dag_owner
+    $dwg_owner_wallet_type TEXT := null;
+    for $type_row in SELECT wallet_type FROM wallets WHERE address = $dwg_owner LIMIT 1 {
+        $dwg_owner_wallet_type := $type_row.wallet_type;
+        break;
+    }
+
+    if $dwg_owner_wallet_type = 'XRPL' AND $dwg_owner_public_key IS NULL {
         error('dwg_owner public key not found');
     }
 
@@ -1180,7 +1187,13 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
         $dag_owner_public_key := $wallet_row.public_key;
         break;
     }
-    if $dag_owner_public_key IS NULL {
+    $dag_owner_wallet_type TEXT := null;
+    for $type_row in SELECT wallet_type FROM wallets WHERE address = $dag_owner_wallet_identifier LIMIT 1 {
+        $dag_owner_wallet_type := $type_row.wallet_type;
+        break;
+    }
+
+    if $dag_owner_wallet_type = 'XRPL' AND $dag_owner_public_key IS NULL {
         error('dag_owner public key not found');
     }
     -- This works for EVM-compatible signatures only
