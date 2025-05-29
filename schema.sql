@@ -598,7 +598,6 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
     $original_credential_id UUID,
     $dag_owner_wallet_identifier TEXT,
     $dag_grantee_wallet_identifier TEXT,
-    $dag_owner_public_key TEXT,
     $dag_locked_until INT8,
     $dag_signature TEXT
 ) PUBLIC {
@@ -685,7 +684,6 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $copy_broader_signature TEXT,
     $content_hash TEXT, -- For access grant
     $dwg_owner TEXT,
-    $dwg_owner_public_key TEXT,
     $dwg_grantee TEXT,
     $dwg_issuer_public_key TEXT,
     $dwg_id UUID,
@@ -697,6 +695,20 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     -- Check the content creator (encryptor) is the issuer that user delegated to issue the credential
     if $issuer_auth_public_key != $dwg_issuer_public_key {
         error('credentials issuer must be an issuer of delegated write grant (issuer_auth_public_key = dwg_issuer_public_key)');
+    }
+
+
+    -- Get the public key for XRPL/NEAR wallets from database
+    $dwg_owner_public_key TEXT := null;
+    for $wallet_row in SELECT public_key FROM wallets 
+            WHERE ((wallet_type = 'XRPL' AND address = $dwg_owner) 
+                OR (wallet_type = 'NEAR' AND address = $dwg_owner))
+            LIMIT 1 {
+        $dwg_owner_public_key := $wallet_row.public_key;
+        break;
+    }
+    if $dwg_owner_public_key IS NULL {
+        error('dwg_owner public key not found');
     }
 
     $dwg_owner_found bool := false;
@@ -1155,11 +1167,22 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $dag_owner_wallet_identifier TEXT,
     $dag_grantee_wallet_identifier TEXT,
     $dag_data_id UUID,
-    $dag_owner_public_key TEXT,
     $dag_locked_until INT,
     $dag_content_hash TEXT,
     $dag_signature TEXT
 ) PUBLIC {
+    -- Get the public key for XRPL/NEAR wallets from database
+    $dag_owner_public_key TEXT := null;
+    for $wallet_row in SELECT public_key FROM wallets 
+            WHERE ((wallet_type = 'XRPL' AND address = $dag_owner_wallet_identifier) 
+                OR (wallet_type = 'NEAR' AND address = $dag_owner_wallet_identifier))
+            LIMIT 1 {
+        $dag_owner_public_key := $wallet_row.public_key;
+        break;
+    }
+    if $dag_owner_public_key IS NULL {
+        error('dag_owner public key not found');
+    }
     -- This works for EVM-compatible signatures only
     $owner_verified = idos.verify_owner(
         $dag_owner_wallet_identifier,
