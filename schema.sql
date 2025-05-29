@@ -698,32 +698,18 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     }
 
 
-    -- Get the public key for XRPL/NEAR wallets from database
-    $dwg_owner_public_key TEXT := null;
-    for $wallet_row in SELECT public_key FROM wallets 
-            WHERE ((wallet_type = 'XRPL' AND address = $dwg_owner) 
-                OR (wallet_type = 'NEAR' AND address = $dwg_owner))
-            LIMIT 1 {
-        $dwg_owner_public_key := $wallet_row.public_key;
-        break;
-    }
-     -- First, determine the wallet type of dag_owner
-    $dwg_owner_wallet_type TEXT := null;
-    for $type_row in SELECT wallet_type FROM wallets WHERE address = $dwg_owner LIMIT 1 {
-        $dwg_owner_wallet_type := $type_row.wallet_type;
-        break;
-    }
-
-    if $dwg_owner_wallet_type = 'XRPL' AND $dwg_owner_public_key IS NULL {
-        error('dwg_owner public key not found');
-    }
-
+    -- Get the wallet type and public key for XRPL/NEAR wallets from database
     $dwg_owner_found bool := false;
-    for $row1 in SELECT 1 FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
+    $dwg_owner_wallet_type string := '';
+    $dwg_owner_public_key string := '';
+    for $wallet in SELECT wallet_type, public_key FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
             OR (wallet_type = 'XRPL' AND address = $dwg_owner)  OR (wallet_type = 'NEAR' AND public_key = $dwg_owner) {
         $dwg_owner_found := true;
+        $dwg_owner_wallet_type := $wallet.wallet_type;
+        $dwg_owner_public_key := $wallet.public_key;
         break;
     }
+
     if !$dwg_owner_found {
         error('dwg_owner not found');
     }
@@ -1178,24 +1164,21 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $dag_content_hash TEXT,
     $dag_signature TEXT
 ) PUBLIC {
-    -- Get the public key for XRPL/NEAR wallets from database
-    $dag_owner_public_key TEXT := null;
-    for $wallet_row in SELECT public_key FROM wallets 
-            WHERE ((wallet_type = 'XRPL' AND address = $dag_owner_wallet_identifier) 
-                OR (wallet_type = 'NEAR' AND address = $dag_owner_wallet_identifier))
-            LIMIT 1 {
-        $dag_owner_public_key := $wallet_row.public_key;
+    -- Get the wallet type and public key for XRPL/NEAR wallets from database
+    $dag_owner_found bool := false;
+    $dag_owner_wallet_type string := '';
+    $dag_owner_public_key string := '';
+    for $wallet in SELECT wallet_type, public_key FROM wallets WHERE (wallet_type = 'EVM' AND address = $dag_owner_wallet_identifier COLLATE NOCASE)
+            OR (wallet_type = 'XRPL' AND address = $dag_owner_wallet_identifier)  OR (wallet_type = 'NEAR' AND public_key = $dag_owner_wallet_identifier) {
+        $dag_owner_found := true;
+        $dag_owner_wallet_type := $wallet.wallet_type;
+        $dag_owner_public_key := $wallet.public_key;
         break;
     }
-    $dag_owner_wallet_type TEXT := null;
-    for $type_row in SELECT wallet_type FROM wallets WHERE address = $dag_owner_wallet_identifier LIMIT 1 {
-        $dag_owner_wallet_type := $type_row.wallet_type;
-        break;
+    if !$dag_owner_found {
+        error('dag_owner not found');
     }
 
-    if $dag_owner_wallet_type = 'XRPL' AND $dag_owner_public_key IS NULL {
-        error('dag_owner public key not found');
-    }
     -- This works for EVM-compatible signatures only
     $owner_verified = idos.verify_owner(
         $dag_owner_wallet_identifier,
