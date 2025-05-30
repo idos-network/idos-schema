@@ -135,6 +135,7 @@ CREATE TABLE IF NOT EXISTS passporting_club_memberships (
     FOREIGN KEY (passporting_club_id) REFERENCES passporting_clubs(id) ON DELETE CASCADE,
     FOREIGN KEY (passporting_peer_id) REFERENCES passporting_peers(id) ON DELETE CASCADE
 );
+CREATE INDEX IF NOT EXISTS passporting_memberships_peer_id ON passporting_club_memberships(passporting_peer_id);
 
 
 -- INSERTER AND DELEGATE ACTIONS
