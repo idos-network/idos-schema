@@ -734,6 +734,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
 
     $dwg_result = idos.dwg_verify_owner(
         $dwg_owner,
+        $dwg_owner_wallet_type,
         $dwg_owner_public_key,
         $dwg_grantee,
         $dwg_issuer_public_key,
@@ -1182,8 +1183,9 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     -- This works for EVM-compatible signatures only
     $owner_verified = idos.verify_owner(
         $dag_owner_wallet_identifier,
-        $dag_grantee_wallet_identifier,
+        $dag_owner_wallet_type,
         $dag_owner_public_key,
+        $dag_grantee_wallet_identifier,
         $dag_data_id::TEXT,
         $dag_locked_until,
         $dag_content_hash,
