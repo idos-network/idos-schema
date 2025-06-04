@@ -801,8 +801,8 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $original_credential_id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
-            OR (wallet_type = 'XRPL' AND address=$dwg_owner) OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
+            OR (wallet_type = 'XRPL' AND address = $dwg_owner) OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
         $original_public_notes,
         $original_content,
