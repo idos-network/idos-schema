@@ -720,12 +720,19 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
         error('credentials issuer must be an issuer of delegated write grant (issuer_auth_public_key = dwg_issuer_public_key)');
     }
 
+
+    -- Get the wallet type and public key for XRPL/NEAR wallets from database
     $dwg_owner_found bool := false;
-    for $row1 in SELECT 1 FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
+    $dwg_owner_wallet_type string := '';
+    $dwg_owner_public_key string := '';
+    for $wallet in SELECT wallet_type, public_key FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
             OR (wallet_type = 'XRPL' AND address = $dwg_owner)  OR (wallet_type = 'NEAR' AND public_key = $dwg_owner) {
         $dwg_owner_found := true;
+        $dwg_owner_wallet_type := $wallet.wallet_type;
+        $dwg_owner_public_key := $wallet.public_key;
         break;
     }
+
     if !$dwg_owner_found {
         error('dwg_owner not found');
     }
@@ -750,6 +757,8 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
 
     $dwg_result = idos.dwg_verify_owner(
         $dwg_owner,
+        $dwg_owner_wallet_type,
+        $dwg_owner_public_key,
         $dwg_grantee,
         $dwg_issuer_public_key,
         $dwg_id::TEXT,
@@ -792,8 +801,8 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $original_credential_id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address=$dwg_owner COLLATE NOCASE)
-            OR (wallet_type = 'XRPL' AND address = @caller) OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
+            OR (wallet_type = 'XRPL' AND address = $dwg_owner) OR (wallet_type = 'NEAR' AND public_key = $dwg_owner)),
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
         $original_public_notes,
         $original_content,
@@ -1179,9 +1188,26 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $dag_content_hash TEXT,
     $dag_signature TEXT
 ) PUBLIC {
+    -- Get the wallet type and public key for XRPL/NEAR wallets from database
+    $dag_owner_found bool := false;
+    $dag_owner_wallet_type string := '';
+    $dag_owner_public_key string := '';
+    for $wallet in SELECT wallet_type, public_key FROM wallets WHERE (wallet_type = 'EVM' AND address = $dag_owner_wallet_identifier COLLATE NOCASE)
+            OR (wallet_type = 'XRPL' AND address = $dag_owner_wallet_identifier)  OR (wallet_type = 'NEAR' AND public_key = $dag_owner_wallet_identifier) {
+        $dag_owner_found := true;
+        $dag_owner_wallet_type := $wallet.wallet_type;
+        $dag_owner_public_key := $wallet.public_key;
+        break;
+    }
+    if !$dag_owner_found {
+        error('dag_owner not found');
+    }
+
     -- This works for EVM-compatible signatures only
     $owner_verified = idos.verify_owner(
         $dag_owner_wallet_identifier,
+        $dag_owner_wallet_type,
+        $dag_owner_public_key,
         $dag_grantee_wallet_identifier,
         $dag_data_id::TEXT,
         $dag_locked_until,
@@ -1196,8 +1222,9 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     for $row in SELECT 1 from credentials
             INNER JOIN wallets ON credentials.user_id = wallets.user_id
             WHERE credentials.id = $dag_data_id
-            AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE
-            AND wallets.wallet_type = 'EVM' {
+            AND ((wallets.wallet_type = 'EVM' AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE)
+                OR (wallets.wallet_type = 'XRPL' AND wallets.address = $dag_owner_wallet_identifier)
+                OR (wallets.wallet_type = 'NEAR' AND wallets.public_key = $dag_owner_wallet_identifier)) {
         $data_id_belongs_to_owner := true;
         break;
     }
