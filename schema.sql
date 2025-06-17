@@ -250,34 +250,25 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
 CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $message TEXT, $signature TEXT) PUBLIC {
     $wallet_type := idos.determine_wallet_type($address);
 
-    if $wallet_type = 'NEAR' AND $public_key is null {
-        error('NEAR wallets require a public_key to be given');
-    }
+    if $wallet_type = 'NEAR' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' {
+        if $public_key is null {
+            error('wallet require a public_key to be given');
+        }
 
-    if $wallet_type = 'NEAR' {
         if !idos.is_valid_public_key($public_key, $wallet_type) {
             error('invalid or unsupported public key');
         }
-    }
 
-    if $wallet_type = 'XRPL' AND $public_key is null {
-        error('XRPL wallets require a public_key to be given');
-    }
-
-    if $wallet_type = 'XRPL' {
-        if !idos.is_valid_public_key($public_key, $wallet_type) {
-            error('invalid or unsupported public key');
+        for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND $wallet_type IN ('NEAR', 'Stellar', 'XRPL') AND public_key = $public_key {
+            error('wallet public key already exists in idos');
         }
     }
 
-    for $row in SELECT 1 FROM wallets WHERE $wallet_type = 'EVM' AND address = $address COLLATE NOCASE {
-        error('this EVM wallet address already exists in idos');
-    }
-    for $row in SELECT 1 FROM wallets WHERE $wallet_type IN ('NEAR', 'Stellar') AND public_key = $public_key COLLATE NOCASE {
-        error('this NEAR wallet public key already exists in idos');
-    }
-    for $row in SELECT 1 FROM wallets WHERE $wallet_type = 'XRPL' AND public_key = $public_key COLLATE NOCASE {
-        error('this XRPL wallet public key already exists in idos');
+    if $wallet_type = 'EVM' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' {
+        for $row_address in SELECT 1 FROM wallets WHERE id != $id AND
+            (($wallet_type = 'EVM' AND address = $address COLLATE NOCASE) OR ($wallet_type IN ('XRPL', 'Stellar') AND address = $address)) {
+                error('wallet address already exists in idos');
+        }
     }
 
     INSERT INTO wallets (id, user_id, address, public_key, wallet_type, message, signature)
