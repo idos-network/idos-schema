@@ -1181,7 +1181,8 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $dag_owner_wallet_type string := '';
     $dag_owner_public_key string := '';
     for $wallet in SELECT wallet_type, public_key FROM wallets WHERE (wallet_type = 'EVM' AND address = $dag_owner_wallet_identifier COLLATE NOCASE)
-            OR (wallet_type = 'XRPL' AND address = $dag_owner_wallet_identifier)  OR (wallet_type = 'NEAR' AND public_key = $dag_owner_wallet_identifier) {
+            OR (wallet_type = 'XRPL' AND address = $dag_owner_wallet_identifier)
+            OR (wallet_type IN ('NEAR', 'Stellar') AND public_key = $dag_owner_wallet_identifier) {
         $dag_owner_found := true;
         $dag_owner_wallet_type := $wallet.wallet_type;
         $dag_owner_public_key := $wallet.public_key;
@@ -1212,7 +1213,7 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
             WHERE credentials.id = $dag_data_id
             AND ((wallets.wallet_type = 'EVM' AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE)
                 OR (wallets.wallet_type = 'XRPL' AND wallets.address = $dag_owner_wallet_identifier)
-                OR (wallets.wallet_type = 'NEAR' AND wallets.public_key = $dag_owner_wallet_identifier)) {
+                OR (wallets.wallet_type IN ('NEAR', 'Stellar') AND wallets.public_key = $dag_owner_wallet_identifier)) {
         $data_id_belongs_to_owner := true;
         break;
     }
