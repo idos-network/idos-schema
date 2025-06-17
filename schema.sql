@@ -1280,7 +1280,8 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
             WHERE credentials.id = $dag_data_id
             AND ((wallets.wallet_type = 'EVM' AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE)
                 OR (wallets.wallet_type = 'XRPL' AND wallets.address = $dag_owner_wallet_identifier)
-                OR (wallets.wallet_type = 'NEAR' AND wallets.public_key = $dag_owner_wallet_identifier)) {
+                OR (wallets.wallet_type = 'NEAR' AND wallets.public_key = $dag_owner_wallet_identifier)
+                OR (wallets.wallet_type = 'STELLAR' AND wallets.public_key = $dag_owner_wallet_identifier)) {
         $data_id_belongs_to_owner := true;
         break;
     }
