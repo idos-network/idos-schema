@@ -283,6 +283,15 @@ CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $
         error('this XRPL wallet public key already exists in idos');
     }
 
+    $signer_address := $address;
+    if $wallet_type = 'NEAR' {
+       $signer_address := $public_key;
+    }
+     $signature_valid := idos.verify_signature($signer_address, $wallet_type, $public_key, $message, $signature);
+    if !$signature_valid {
+        error('signature verification failed');
+    }
+
     INSERT INTO wallets (id, user_id, address, public_key, wallet_type, message, signature)
     VALUES (
         $id,
