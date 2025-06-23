@@ -271,11 +271,15 @@ CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $
         }
     }
 
-    $signer_address := $address;
-    if $wallet_type = 'NEAR' {
-       $signer_address := $public_key;
+    $signature_signer TEXT;
+    if $wallet_type = 'NEAR' OR $wallet_type = 'Stellar' {
+        $signature_signer := $public_key;
+    } else {
+        $signature_signer := $address;
     }
-     $signature_valid := idos.verify_signature($signer_address, $wallet_type, $public_key, $message, $signature);
+
+    $signature_valid := idos.verify_signature($signature_signer, $wallet_type, $public_key, $message, $signature);
+
     if !$signature_valid {
         error('signature verification failed');
     }
