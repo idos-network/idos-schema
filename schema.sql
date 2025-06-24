@@ -240,6 +240,19 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
         }
     }
 
+    $signature_signer TEXT;
+    if $wallet_type = 'NEAR' OR $wallet_type = 'Stellar' {
+        $signature_signer := $public_key;
+    } else {
+        $signature_signer := $address;
+    }
+
+    $signature_valid := idos.verify_signature($signature_signer, $wallet_type, $public_key, $message, $signature);
+
+    if !$signature_valid {
+        error('signature verification failed');
+    }
+
     $inserter := get_inserter();
     INSERT INTO wallets (id, user_id, address, public_key, wallet_type, message, signature, inserter)
     VALUES ($id, $user_id, $address, $public_key, $wallet_type, $message, $signature, $inserter)
