@@ -13,6 +13,7 @@ USE IF NOT EXISTS idos AS idos;
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
     recipient_encryption_public_key TEXT NOT NULL,
+    encryption_public_key_store_type TEXT NOT NULL CHECK (encryption_public_key_store_type IN ('password', 'mpc')),
     inserter TEXT NOT NULL
 );
 
