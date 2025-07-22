@@ -13,7 +13,7 @@ USE IF NOT EXISTS idos AS idos;
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
     recipient_encryption_public_key TEXT NOT NULL,
-    encryption_password_store_type TEXT NOT NULL CHECK (encryption_password_store_type IN ('user', 'mpc')),
+    encryption_password_store TEXT NOT NULL CHECK (encryption_password_store IN ('user', 'mpc')),
     inserter TEXT NOT NULL
 );
 
@@ -178,35 +178,35 @@ CREATE OR REPLACE ACTION get_inserter_or_null() PRIVATE VIEW RETURNS (name TEXT)
 
 -- USER ACTIONS
 
-CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store_type TEXT) PUBLIC {
+CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
     $inserter := get_inserter();
-    INSERT INTO users (id, recipient_encryption_public_key, encryption_password_store_type, inserter)
-        VALUES ($id, $recipient_encryption_public_key, $encryption_password_store_type, $inserter);
+    INSERT INTO users (id, recipient_encryption_public_key, encryption_password_store, inserter)
+        VALUES ($id, $recipient_encryption_public_key, $encryption_password_store, $inserter);
 };
 
-CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store_type TEXT) PUBLIC {
+CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
     get_inserter();
-    UPDATE users SET recipient_encryption_public_key=$recipient_encryption_public_key, encryption_password_store_type=$encryption_password_store_type
+    UPDATE users SET recipient_encryption_public_key=$recipient_encryption_public_key, encryption_password_store=$encryption_password_store
         WHERE id = $id;
 };
 
-CREATE OR REPLACE ACTION get_user() PUBLIC VIEW RETURNS (id UUID, recipient_encryption_public_key TEXT, encryption_password_store_type TEXT) {
-    for $row in SELECT id, recipient_encryption_public_key, encryption_password_store_type FROM users
+CREATE OR REPLACE ACTION get_user() PUBLIC VIEW RETURNS (id UUID, recipient_encryption_public_key TEXT, encryption_password_store TEXT) {
+    for $row in SELECT id, recipient_encryption_public_key, encryption_password_store FROM users
         WHERE id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
             OR (wallet_type = 'XRPL' AND address = @caller) OR (wallet_type IN ('NEAR', 'Stellar') AND public_key = @caller)) {
-        return $row.id, $row.recipient_encryption_public_key, $row.encryption_password_store_type;
+        return $row.id, $row.recipient_encryption_public_key, $row.encryption_password_store;
     }
 };
 
 CREATE OR REPLACE ACTION get_user_as_inserter($id UUID) PUBLIC VIEW RETURNS (
     id UUID,
     recipient_encryption_public_key TEXT,
-    encryption_password_store_type TEXT,
+    encryption_password_store TEXT,
     inserter TEXT
 ) {
     get_inserter();
     for $row in SELECT * FROM users WHERE id = $id {
-        return $row.id, $row.recipient_encryption_public_key, $row.encryption_password_store_type, $row.inserter;
+        return $row.id, $row.recipient_encryption_public_key, $row.encryption_password_store, $row.inserter;
     }
 };
 
