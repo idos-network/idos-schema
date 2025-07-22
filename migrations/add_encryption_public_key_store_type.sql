@@ -1,4 +1,4 @@
-ALTER TABLE users ADD COLUMN encryption_public_key_store_type TEXT;
-ALTER TABLE users ADD CHECK (encryption_public_key_store_type IN ('password', 'mpc'));
-UPDATE users SET encryption_public_key_store_type = 'password';
-ALTER TABLE users ALTER COLUMN encryption_public_key_store_type SET NOT NULL;
+ALTER TABLE users ADD COLUMN encryption_password_store TEXT;
+ALTER TABLE users ADD CHECK (encryption_password_store IN ('user', 'mpc'));
+UPDATE users SET encryption_password_store = 'user';
+ALTER TABLE users ALTER COLUMN encryption_password_store SET NOT NULL;
