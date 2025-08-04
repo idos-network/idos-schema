@@ -53,26 +53,26 @@ export function parseSchema(schemaPath: string): KwilAction[] {
     // parse comments
     const generatorComments = statement
       .comments
-      .filter(comment => comment.includes("@generator.")) // @generator.skip, @generator.not_authorized, @generator.description MESSAGE
+      .filter(comment => comment.trim().startsWith("@generator.")) // @generator.skip, @generator.not_authorized etc...
       .reduce((acc, comment) => {
-        const result = [...comment.trim().matchAll(/@generator\.([a-zA-Z_-]*)\s*(\"([^"])*\"){0,1}/gm)].flat();
+        const result = [...comment.trim().matchAll(/@generator\.([a-zA-Z_-]*)\s*(([^\n])*){0,1}/gm)].flat();
 
         if (result.length === 0) {
           console.error("Invalid comment format:", comment);
           return acc;
         }
-        if (["description", "inputName", "itemName", "name", "forceReturn"].includes(result[1])) {
-          // @ts-expect-error No infer types
-          acc[result[1]] = result[2]?.replace(/\"/g, "");
-        } else if (result[1] === "paramOptional") {
+         if (result[1] === "paramOptional") {
           if (!acc.paramOptional) {
             acc.paramOptional = [];
           }
 
           acc.paramOptional.push(result[2]?.replace(/\"/g, ""));
-        } else {
+        } else if (["skip", "notAuthorized"].includes(result[1])) {
           // @ts-expect-error No infer types
           acc[result[1]] = result[2] || true;
+        } else {
+          // @ts-expect-error No infer types
+          acc[result[1]] = result[2]?.replace(/\"/g, "");
         }
 
         return acc;
@@ -80,7 +80,7 @@ export function parseSchema(schemaPath: string): KwilAction[] {
 
     actions.push({
       ...parser.results[0][0],
-      comments: statement.comments.filter(comment => !comment.includes("@generator.")),
+      comments: statement.comments.filter(comment => !comment.trim().startsWith("@generator.")),
       generatorComments,
     });
   }
