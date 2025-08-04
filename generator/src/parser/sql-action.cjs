@@ -64,7 +64,7 @@ var grammar = {
     {"name": "returns$ebnf$3", "symbols": []},
     {"name": "returns$ebnf$3", "symbols": ["returns$ebnf$3", "wsOrNl"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
     {"name": "returns$ebnf$4", "symbols": []},
-    {"name": "returns$ebnf$4", "symbols": ["returns$ebnf$4", "identArgs"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
+    {"name": "returns$ebnf$4", "symbols": ["returns$ebnf$4", "args"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
     {"name": "returns$ebnf$5", "symbols": []},
     {"name": "returns$ebnf$5", "symbols": ["returns$ebnf$5", "wsOrNl"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
     {"name": "returns$ebnf$6", "symbols": []},
@@ -84,30 +84,6 @@ var grammar = {
     {"name": "table$ebnf$1", "symbols": []},
     {"name": "table$ebnf$1", "symbols": ["table$ebnf$1", "wsOrNl"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
     {"name": "table", "symbols": ["TABLE", "table$ebnf$1"], "postprocess": () => ({ type: "table", value: true })},
-    {"name": "identArgs$ebnf$1", "symbols": []},
-    {"name": "identArgs$ebnf$1$subexpression$1$ebnf$1", "symbols": []},
-    {"name": "identArgs$ebnf$1$subexpression$1$ebnf$1", "symbols": ["identArgs$ebnf$1$subexpression$1$ebnf$1", "wsOrNl"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
-    {"name": "identArgs$ebnf$1$subexpression$1", "symbols": ["COMMA", "identArgs$ebnf$1$subexpression$1$ebnf$1", "identArg"]},
-    {"name": "identArgs$ebnf$1", "symbols": ["identArgs$ebnf$1", "identArgs$ebnf$1$subexpression$1"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
-    {"name": "identArgs", "symbols": ["identArg", "identArgs$ebnf$1"], "postprocess":  d => {
-          const fields = d.flat(50).filter(Boolean).filter(x => x.type !== "COMMA");
-        
-          return {
-            type: "arg",
-            values: fields,
-          }
-        }
-        },
-    {"name": "identArg", "symbols": ["IDENT", "_", "TYPE"], "postprocess":  d => {
-          const fields = d.flat(50).filter(Boolean);
-          const name = fields.find(f => f.type === "IDENT");
-          const type = fields.find(f => f.type === "TYPE");
-        
-          return {
-            name: name?.value,
-            type: type?.value,
-          }
-        } },
     {"name": "args$ebnf$1", "symbols": []},
     {"name": "args$ebnf$1$subexpression$1$ebnf$1", "symbols": []},
     {"name": "args$ebnf$1$subexpression$1$ebnf$1", "symbols": ["args$ebnf$1$subexpression$1$ebnf$1", "wsOrNl"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
@@ -122,13 +98,13 @@ var grammar = {
           }
         }
         },
-    {"name": "arg", "symbols": ["DOLLAR_IDENT", "_", "TYPE"], "postprocess":  d => {
+    {"name": "arg", "symbols": ["IDENT", "_", "TYPE"], "postprocess":  d => {
           const fields = d.flat(50).filter(Boolean);
-          const name = fields.find(f => f.type === "DOLLAR_IDENT");
+          const name = fields.find(f => f.type === "IDENT");
           const type = fields.find(f => f.type === "TYPE");
         
           return {
-            name: name?.value.slice(1),
+            name: name?.value.startsWith("$") ? name?.value.slice(1) : name?.value,
             type: type?.value,
           }
         } },
@@ -154,7 +130,6 @@ var grammar = {
     {"name": "token", "symbols": ["TABLE"]},
     {"name": "token", "symbols": ["LPAREN"]},
     {"name": "token", "symbols": ["RPAREN"]},
-    {"name": "token", "symbols": ["DOLLAR_IDENT"]},
     {"name": "token", "symbols": ["COMMA"]},
     {"name": "token", "symbols": ["TYPE"]},
     {"name": "token", "symbols": ["PUBLIC"]},
@@ -178,7 +153,6 @@ var grammar = {
     {"name": "IDENT", "symbols": [(lexer.has("IDENT") ? {type: "IDENT"} : IDENT)]},
     {"name": "LPAREN", "symbols": [(lexer.has("LPAREN") ? {type: "LPAREN"} : LPAREN)]},
     {"name": "RPAREN", "symbols": [(lexer.has("RPAREN") ? {type: "RPAREN"} : RPAREN)]},
-    {"name": "DOLLAR_IDENT", "symbols": [(lexer.has("DOLLAR_IDENT") ? {type: "DOLLAR_IDENT"} : DOLLAR_IDENT)]},
     {"name": "COMMA", "symbols": [(lexer.has("COMMA") ? {type: "COMMA"} : COMMA)]},
     {"name": "TYPE", "symbols": [(lexer.has("TYPE") ? {type: "TYPE"} : TYPE)]},
     {"name": "PUBLIC", "symbols": [(lexer.has("PUBLIC") ? {type: "PUBLIC"} : PUBLIC)]},

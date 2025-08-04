@@ -36,7 +36,7 @@ actionLine -> CREATE _ orReplace:? ACTION _ IDENT _ LPAREN wsOrNl:* args:* wsOrN
     }
   } %}
 
-returns -> RETURNS _ wsOrNl:* table:? LPAREN wsOrNl:* identArgs:* wsOrNl:* RPAREN wsOrNl:*
+returns -> RETURNS _ wsOrNl:* table:? LPAREN wsOrNl:* args:* wsOrNl:* RPAREN wsOrNl:*
    {% d => {
     const fields = d.flat(1000).filter(Boolean);
     const args = fields.filter(f => f.type === "arg");
@@ -52,29 +52,6 @@ returns -> RETURNS _ wsOrNl:* table:? LPAREN wsOrNl:* identArgs:* wsOrNl:* RPARE
 
 table -> TABLE wsOrNl:* {% () => ({ type: "table", value: true }) %}
 
-identArgs -> identArg (COMMA wsOrNl:* identArg):*
-  {% d => {
-    const fields = d.flat(50).filter(Boolean).filter(x => x.type !== "COMMA");
-
-    return {
-      type: "arg",
-      values: fields,
-    }
-  }
-  %}
-
-identArg -> IDENT _ TYPE
-  {% d => {
-    const fields = d.flat(50).filter(Boolean);
-    const name = fields.find(f => f.type === "IDENT");
-    const type = fields.find(f => f.type === "TYPE");
-
-    return {
-      name: name?.value,
-      type: type?.value,
-    }
-  } %}
-
 args -> arg (COMMA wsOrNl:* arg):*
   {% d => {
     const fields = d.flat(50).filter(Boolean).filter(x => x.type !== "COMMA");
@@ -86,14 +63,14 @@ args -> arg (COMMA wsOrNl:* arg):*
   }
   %}
 
-arg -> DOLLAR_IDENT _ TYPE
+arg -> IDENT _ TYPE
   {% d => {
     const fields = d.flat(50).filter(Boolean);
-    const name = fields.find(f => f.type === "DOLLAR_IDENT");
+    const name = fields.find(f => f.type === "IDENT");
     const type = fields.find(f => f.type === "TYPE");
 
     return {
-      name: name?.value.slice(1),
+      name: name?.value.startsWith("$") ? name?.value.slice(1) : name?.value,
       type: type?.value,
     }
   } %}
@@ -107,7 +84,7 @@ private -> PRIVATE wsOrNl:* {% () => ({ type: "private", value: true }) %}
 
 otherLine -> token:* NL  {% () => null %}
 
-token ->  WORD | WS | IDENT | TABLE | LPAREN | RPAREN | DOLLAR_IDENT | COMMA | TYPE | PUBLIC | VIEW | OR | LBRACE | OWNER {% () => null %} 
+token ->  WORD | WS | IDENT | TABLE | LPAREN | RPAREN | COMMA | TYPE | PUBLIC | VIEW | OR | LBRACE | OWNER {% () => null %} 
 
 wsOrNl -> WS {% () => null %}
         | NL {% () => null %}
@@ -125,7 +102,6 @@ TABLE -> %TABLE
 IDENT -> %IDENT
 LPAREN -> %LPAREN
 RPAREN -> %RPAREN
-DOLLAR_IDENT -> %DOLLAR_IDENT
 COMMA -> %COMMA
 TYPE -> %TYPE
 PUBLIC -> %PUBLIC

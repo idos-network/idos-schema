@@ -185,6 +185,8 @@ CREATE OR REPLACE ACTION get_inserter_or_null() PRIVATE VIEW RETURNS (name TEXT)
 -- USER ACTIONS
 
 -- @generator.description "Add a user to idOS"
+-- @generator.inputName "idOSUser"
+-- @generator.name "createUser"
 CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
     $inserter := get_inserter();
     INSERT INTO users (id, recipient_encryption_public_key, encryption_password_store, inserter)
@@ -223,6 +225,7 @@ CREATE OR REPLACE ACTION get_user_as_inserter($id UUID) PUBLIC VIEW RETURNS (
 -- WALLET ACTIONS
 
 -- @generator.description "Add a wallet to idOS"
+-- @generator.inputName "idOSWallet"
 CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $id UUID,
     $user_id UUID,
@@ -452,6 +455,7 @@ CREATE OR REPLACE ACTION add_credential (
     );
 };
 
+-- @generator.itemName "idOSCredentialListItem"
 CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -548,6 +552,8 @@ CREATE OR REPLACE ACTION edit_credential (
 -- All other @caller in the schema are either secp256k1 or nep413
 -- This action can't be called by kwil-cli (as kwil-cli uses secp256k1 only)
 -- @generator.description "Edit a credential in your idOS profile"
+-- @generator.inputName "EditCredentialAsIssuerParams"
+-- @generator.name "editCredentialAsIssuer"
 CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $public_notes TEXT) PUBLIC {
     UPDATE credentials SET public_notes = $public_notes
     WHERE issuer_auth_public_key = @caller
@@ -735,6 +741,7 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
 };
 
 -- @generator.description "Create a new credential in your idOS profile"
+-- @generator.name "createCredentialByDelegatedWriteGrant"
 CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $issuer_auth_public_key TEXT,
     $original_encryptor_public_key TEXT,
@@ -908,6 +915,8 @@ CREATE OR REPLACE ACTION credential_exist_as_inserter($id UUID) PUBLIC VIEW RETU
     return credential_exist($id);
 };
 
+-- @generator.name "getCredentialOwned"
+-- @generator.itemName "idOSCredential"
 CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -928,6 +937,8 @@ CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS tab
 };
 
 -- As a credential copy doesn't contain PUBLIC notes, we return respective original credential PUBLIC notes
+-- @generator.name "getSharedCredential"
+-- @generator.forceReturn "idOSCredential"
 CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -959,6 +970,7 @@ CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS ta
         WHERE c.id = $id;
     };
 
+-- @generator.name "getCredentialIdByContentHash"
 CREATE OR REPLACE ACTION get_sibling_credential_id ($content_hash TEXT) PUBLIC VIEW RETURNS (id UUID) {
     for $row in SELECT c.id FROM credentials as c INNER JOIN access_grants as ag ON c.id = ag.data_id
         WHERE ag.content_hash = $content_hash AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
@@ -1009,6 +1021,7 @@ CREATE OR REPLACE ACTION add_attribute($id UUID, $attribute_key TEXT, $value TEX
     );
 };
 
+-- @generator.itemName "idOSUserAttribute"
 CREATE OR REPLACE ACTION get_attributes() PUBLIC VIEW returns table (
     id UUID,
     user_id UUID,
@@ -1075,6 +1088,7 @@ CREATE OR REPLACE ACTION share_attribute($id UUID, $original_attribute_id UUID, 
 
 -- WRITE GRANTS ACTIONS
 
+-- @generator.inputName "idOSDelegatedWriteGrant"
 CREATE OR REPLACE ACTION dwg_message(
     $owner_wallet_identifier TEXT,
     $grantee_wallet_identifier TEXT,
@@ -1132,6 +1146,7 @@ CREATE OR REPLACE ACTION revoke_access_grant ($id UUID) PUBLIC {
         OR (wallet_type = 'XRPL' AND address = @caller) OR (wallet_type IN ('NEAR', 'Stellar') AND public_key = @caller));
 };
 
+-- @generator.itemName "idOSGrant"
 CREATE OR REPLACE ACTION get_access_grants_owned () PUBLIC VIEW RETURNS table (
     id UUID,
     ag_owner_user_id UUID,
@@ -1150,6 +1165,9 @@ CREATE OR REPLACE ACTION get_access_grants_owned () PUBLIC VIEW RETURNS table (
 -- As arguments can be undefined (user can not send them at all), we have to have default values: page=1, size=20
 -- Page number starts from 1, as UI usually shows to user in pagination element
 -- Ordering is consistent because we use height as first ordering parameter
+-- @generator.name "getGrantsPaginated"
+-- @generator.forceReturn "idOSGrant"
+-- @generator.paramOptional "user_id"
 CREATE OR REPLACE ACTION get_access_grants_granted ($user_id UUID, $page INT, $size INT) PUBLIC VIEW RETURNS table (
     id UUID,
     ag_owner_user_id UUID,
@@ -1190,7 +1208,8 @@ CREATE OR REPLACE ACTION get_access_grants_granted ($user_id UUID, $page INT, $s
     }
 };
 
--- @generator.param_optional "user_id"
+-- @generator.paramOptional "user_id"
+-- @generator.name "getGrantsCount"
 CREATE OR REPLACE ACTION get_access_grants_granted_count ($user_id UUID) PUBLIC VIEW RETURNS (count INT) {
     if $user_id is null {
       for $row in SELECT COUNT(1) as count FROM access_grants WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE {
@@ -1235,6 +1254,7 @@ CREATE OR REPLACE ACTION dag_message(
 };
 
 -- @generator.description "Create an Access Grant in idOS"
+-- @generator.name "createAccessGrantByDag"
 CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $dag_owner_wallet_identifier TEXT,
     $dag_grantee_wallet_identifier TEXT,
@@ -1362,7 +1382,7 @@ CREATE OR REPLACE ACTION get_access_grants_for_credential($credential_id UUID) P
 -- OTHER ACTIONS
 
 -- Should we improve it to work with near wallets too?
--- @generator.not_authorized
+-- @generator.notAuthorized
 CREATE OR REPLACE ACTION has_profile($address TEXT) PUBLIC VIEW returns (has_profile BOOL) {
     for $row in SELECT 1 FROM wallets WHERE address=$address COLLATE NOCASE {
         return true;

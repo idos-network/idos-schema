@@ -21,9 +21,6 @@ program
 
     const ast = parseSchema(options.input);
 
-    const agg = ast.filter(action => action.name == "get_access_grants_granted_count");
-    console.log(JSON.stringify(agg, null, 2));
-
     generateTypescript(ast);
   });
 

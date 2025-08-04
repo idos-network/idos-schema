@@ -5,7 +5,6 @@ function toCamelCase(snake: string): string {
   return snake.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
 
-
 export function generateTypescript(methods: KwilAction[]) {
   const project = new Project();
   const sourceFile = project.createSourceFile("generated_actions.ts", "", { overwrite: true });
@@ -14,15 +13,16 @@ export function generateTypescript(methods: KwilAction[]) {
 
   sourceFile.addImportDeclarations([
     {
-      moduleSpecifier: "zod",
-      namedImports: ["z"],
-    },
-    {
       moduleSpecifier: "@kwilteam/kwil-js",
       namedImports: ["Utils"],
     },
     {
+      moduleSpecifier: "zod",
+      defaultImport: "* as z",
+    },
+    {
       moduleSpecifier: "../kwil-infra",
+      isTypeOnly: true,
       namedImports: ["KwilActionClient"],
     },
   ]);
@@ -87,75 +87,169 @@ export function generateTypescript(methods: KwilAction[]) {
 
   const zodDbMapping = {
     TEXT: "string",
-    UUID: "string",
+    UUID: "uuid",
     INT: "number",
     BOOLEAN: "boolean",
     BOOL: "boolean",
     INT8: "number",
   }
 
-  function generateZodType(name: string, args: Value[], optionals: string[] = [], isArray = false) {
+  const zodTypeMapping = {
+    TEXT: "ZodString",
+    UUID: "ZodUUID",
+    INT: "ZodNumber",
+    BOOLEAN: "ZodBoolean",
+    BOOL: "ZodBoolean",
+    INT8: "ZodNumber",
+  }
+
+  function generateZodType(name: string, args: Value[], {
+    optionals = [],
+    isArray = false,
+    input = true,
+    itemName,
+  }: {
+    optionals?: string[],
+    isArray?: boolean,
+    input?: boolean,
+    itemName?: string,
+  }): string | undefined {
     if (args.length === 0) return;
 
+    const makeArrayType = isArray && input;
+
+    // This item will be generated always (but never as an array!)
+    // it's Name(Item)Schema - item for arrays
+    let generatedItemName = itemName ?? `${name}${makeArrayType ? "Item" : ""}`;
     sourceFile.addVariableStatement({
       declarationKind: VariableDeclarationKind.Const,
       isExported: true,
       declarations: [
         {
-          name: `${name}Schema`,
+          name: `${generatedItemName}Schema`,
+          type: writer => {
+            writer.write(`z.ZodObject<`);
+            writer.inlineBlock(() => {
+              args.forEach(arg => {
+                writer.write(`${arg.name}: `);
+                if (optionals.includes(arg.name)) {
+                  writer.write("z.ZodNullable<");
+                }
+
+                writer.write(`z.${zodTypeMapping[arg.type]}`);
+
+                if (optionals.includes(arg.name)) {
+                  writer.write(">");
+                }
+
+                writer.write(";");
+                writer.newLine();
+              });
+            });
+            writer.write(">");
+          },
           initializer: writer => {
             writer.write(`z.object(`);
             writer.inlineBlock(() => {
               args.forEach(arg => {
                 writer.write(`${arg.name}: z.${zodDbMapping[arg.type]}()`);
-                writer.conditionalWrite(optionals.includes(arg.name), () => `.optional()`);
+                writer.conditionalWrite(optionals.includes(arg.name), () => ".nullable()");
                 writer.write(",");
                 writer.newLine();
               });
             });
             writer.write(")");
-            writer.conditionalWrite(!!isArray, () => ".array()");
-            writer.writeLine("");
           },
         },
       ],
     });
 
+    // For input arrays we need a ZodArray schema which can we use for parsing.
+    if (makeArrayType) {
+      sourceFile.addVariableStatement({
+        declarationKind: VariableDeclarationKind.Const,
+        isExported: true,
+        declarations: [
+          {
+            name: `${name}Schema`,
+            type: writer => {
+              writer.write(`z.ZodArray<typeof ${itemName}Schema>`);
+            },
+            initializer: writer => {
+              writer.write(`${generatedItemName}Schema.array()`);
+            },
+          },
+        ],
+      });
+
+      // Also this is what we want to type & return
+      sourceFile.addTypeAlias({
+        isExported: true,
+        name,
+        type: `z.infer<typeof ${name}Schema>`,
+      });
+
+      return name;
+    }
+
+    // For others just export the type
     sourceFile.addTypeAlias({
       isExported: true,
-      name,
-      type: `z.infer<typeof ${name}Schema>`,
+      name: generatedItemName,
+      type: `z.infer<typeof ${generatedItemName}Schema>`,
     });
+
+    return generatedItemName;
   }
 
   methods.forEach(method => {
-    const name = toCamelCase(method.name);
+    const name = method.generatorComments.name ?? toCamelCase(method.name);
     const prefix = name[0].toUpperCase() + name.slice(1);
 
-    const output = method.returns.length > 0 ? `${prefix}Output` : "void";
-
     // Zod schema for inputs
+    let inputName: string | undefined = undefined;
     if (method.args.length > 0) {
-      generateZodType(`${prefix}Input`, method.args, method.generatorComments.param_optional);
+      inputName = generateZodType(
+        method.generatorComments.inputName ?? `${prefix}Input`,
+        method.args,
+        {
+          optionals: method.generatorComments.paramOptional,
+          input: true,
+        },
+      );
     }
 
+    let outputName: string | undefined = "void";
     if (method.returns.length > 0) {
-      generateZodType(`${prefix}Output`, method.returns, [], method.returnsArray);
+      if (method.generatorComments.forceReturn) {
+        outputName = method.generatorComments.forceReturn;
+      } else {
+        outputName = generateZodType(
+          `${prefix}Output`,
+          method.returns,
+          {
+            optionals: method.generatorComments.paramOptional,
+            isArray: method.returnsArray,
+            itemName: method.generatorComments.itemName,
+            input: false,
+          },
+        );
+      }
     }
 
     const functionDeclaration = sourceFile.addFunction({
       name,
       isExported: true,
       isAsync: true,
-      returnType: `Promise<${output}>`,
+      returnType: `Promise<${outputName}${method.returnsArray ? "[]" : ""}>`,
       parameters: [
         {
           name: "kwilClient",
           type: "KwilActionClient",
         },
-        ...(method.args.length > 0 ? [{
+        ...(inputName ? [{
           name: "params",
-          type: `${prefix}Input`,
+          type: inputName,
         }] : []),
       ],
     });
@@ -169,14 +263,14 @@ export function generateTypescript(methods: KwilAction[]) {
       let methodCall = method.returns.length > 0 ? "call" : "execute";
 
       if (method.args.length > 0) {
-        writer.writeLine(`const inputs = ${prefix}InputSchema.parse(params);`);
+        writer.writeLine(`const inputs = ${inputName}Schema.parse(params);`);
         writer.writeLine(`${returnStatement} await kwilClient.${methodCall}(`)
         writer.block(() => {
           writer.writeLine(`name: "${method.name}",`);
           writer.writeLine(`inputs,`);
           writer.conditionalWrite(!!method.generatorComments.description, () => `description: "${method.generatorComments.description}",`);
         });
-        writer.conditionalWriteLine(method.generatorComments.not_authorized, () => `, undefined, // Signer is not required here`);
+        writer.conditionalWriteLine(method.generatorComments.notAuthorized, () => `, undefined, // Signer is not required here`);
         writer.writeLine(");");
       } else {
         writer.writeLine(`${returnStatement} await kwilClient.${methodCall}({ name: "${method.name}", inputs: {} });`);

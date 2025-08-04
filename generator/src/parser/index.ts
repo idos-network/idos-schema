@@ -5,7 +5,6 @@ import { parseStatements } from './tokenizer';
 
 // @ts-expect-error no types for nearley
 import grammar from './sql-action.cjs';
-import { resolve } from 'node:path';
 
 export type KwilActionType = "TEXT" | "UUID" | "INT" | "BOOLEAN" | "BOOL" | "INT8";
 
@@ -25,9 +24,13 @@ export interface KwilAction {
 
 export interface GeneratorComments {
   skip: boolean;
-  not_authorized: boolean;
+  notAuthorized: boolean;
   description: string;
-  param_optional: string[];
+  name?: string;
+  inputName?: string;
+  itemName?: string;
+  forceReturn?: string;
+  paramOptional: string[];
 }
 
 export interface Value {
@@ -52,23 +55,21 @@ export function parseSchema(schemaPath: string): KwilAction[] {
       .comments
       .filter(comment => comment.includes("@generator.")) // @generator.skip, @generator.not_authorized, @generator.description MESSAGE
       .reduce((acc, comment) => {
-        const result = [...comment.trim().matchAll(/@generator\.([a-z_-]*)\s*(\"([^"])*\"){0,1}/gm)].flat();
+        const result = [...comment.trim().matchAll(/@generator\.([a-zA-Z_-]*)\s*(\"([^"])*\"){0,1}/gm)].flat();
 
         if (result.length === 0) {
           console.error("Invalid comment format:", comment);
           return acc;
         }
-
-        if (result[1] === "description") {
-          acc.description = result[2]?.replace(/\"/g, "");
-        } else if (result[1] === "param_optional") {
-          if (!acc.param_optional) {
-            acc.param_optional = [];
+        if (["description", "inputName", "itemName", "name", "forceReturn"].includes(result[1])) {
+          // @ts-expect-error No infer types
+          acc[result[1]] = result[2]?.replace(/\"/g, "");
+        } else if (result[1] === "paramOptional") {
+          if (!acc.paramOptional) {
+            acc.paramOptional = [];
           }
 
-          console.log(result);
-
-          acc.param_optional.push(result[2]?.replace(/\"/g, ""));
+          acc.paramOptional.push(result[2]?.replace(/\"/g, ""));
         } else {
           // @ts-expect-error No infer types
           acc[result[1]] = result[2] || true;
