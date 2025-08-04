@@ -1,10 +1,14 @@
+XRPL
 encryptor
 idos
 kwil
+kwilteam
+mycli
+nearley
+nearleyc
 nocase
 passporting
 permissioned
 secp256k1
 timelock
 xrpl
-XRPL

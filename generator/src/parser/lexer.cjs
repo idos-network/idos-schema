@@ -3,7 +3,7 @@ const moo = require("moo");
 const test = moo.compile({
   WS: /[ \t]+/,
   NL: { match: /\r?\n/, lineBreaks: true },
-  COMMENT: /--\s+/,  // Bez newline na konci!
+  COMMENT: /--\s+/,
   CREATE: "CREATE",
   OR: "OR",
   REPLACE: "REPLACE",

@@ -8,3 +8,8 @@ dictionaryDefinitions:
   - name: project-words
     path: ./project-words.txt
     addWords: true
+ignorePaths:
+  - generator/node_modules/**
+  - generator/src/parser/*.ne
+  - generator/src/parser/sql-action.cjs
+  - generator/src/parser/lexer.cjs
