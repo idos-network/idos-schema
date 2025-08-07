@@ -68,16 +68,14 @@ export function generateTypescript(methods: KwilAction[]) {
         initializer: writer => {
           writer.block(() => {
             methods.forEach(method => {
-              if (method.args.length > 0) {
-                writer.writeLine(`${method.name}: [`);
-                  method.args.forEach(arg => {
-                    writer.inlineBlock(() => {
-                      writer.writeLine(`name: "${arg.name}", type: ${schemaDbMapping[arg.type]},`);
-                    });
-                    writer.write(",");
+              writer.writeLine(`${method.name}: [`);
+                method.args.forEach(arg => {
+                  writer.inlineBlock(() => {
+                    writer.writeLine(`name: "${arg.name}", type: ${schemaDbMapping[arg.type]},`);
                   });
-                writer.writeLine("],");
-              }
+                  writer.write(",");
+                });
+              writer.writeLine("],");
             })
           });
         }
@@ -259,8 +257,9 @@ export function generateTypescript(methods: KwilAction[]) {
     }
 
     functionDeclaration.setBodyText(writer => {
-      let returnStatement = method.returns.length > 0 ? "return" : "";
-      let methodCall = method.returns.length > 0 ? "call" : "execute";
+      let hasReturn = method.returns.length > 0;
+      let returnStatement = hasReturn ? "return" : "";
+      let methodCall = hasReturn ? `call<${outputName}[]>` : "execute";
 
       if (method.args.length > 0) {
         writer.writeLine(`const inputs = ${inputName}Schema.parse(params);`);
@@ -271,9 +270,13 @@ export function generateTypescript(methods: KwilAction[]) {
           writer.conditionalWrite(!!method.generatorComments.description, () => `description: "${method.generatorComments.description}",`);
         });
         writer.conditionalWriteLine(method.generatorComments.notAuthorized, () => `, undefined, // Signer is not required here`);
-        writer.writeLine(");");
+        // Call always returns an array, if it is one item (not a RETURN TABLE) we need to get the first element
+        writer.conditionalWrite(hasReturn && !method.returnsArray, () => `).then(result => result[0]`);
+        writer.write(");");
       } else {
-        writer.writeLine(`${returnStatement} await kwilClient.${methodCall}({ name: "${method.name}", inputs: {} });`);
+        writer.write(`${returnStatement} await kwilClient.${methodCall}({ name: "${method.name}", inputs: {} })`);
+        writer.conditionalWrite(hasReturn && !method.returnsArray, () => `.then(result => result[0])`);
+        writer.write(";");
       }
     })
   });
