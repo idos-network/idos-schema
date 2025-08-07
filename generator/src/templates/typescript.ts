@@ -66,15 +66,17 @@ export function generateTypescript(methods: KwilAction[]) {
         name: "actionSchema",
         type: "Record<string, ActionSchemaElement[]>",
         initializer: writer => {
-          writer.block(() => {
+          writer.inlineBlock(() => {
             methods.forEach(method => {
               writer.writeLine(`${method.name}: [`);
-                method.args.forEach(arg => {
-                  writer.inlineBlock(() => {
-                    writer.writeLine(`name: "${arg.name}", type: ${schemaDbMapping[arg.type]},`);
-                  });
-                  writer.write(",");
+              method.args.forEach(arg => {
+                writer.inlineBlock(() => {
+                  writer.writeLine(`name: "${arg.name}",`);
+                  writer.writeLine(`type: ${schemaDbMapping[arg.type]},`);
                 });
+                writer.write(",");
+                writer.newLineIfLastNot();
+              });
               writer.writeLine("],");
             })
           });
