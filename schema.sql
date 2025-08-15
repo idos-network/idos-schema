@@ -737,7 +737,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $dwg_signature TEXT) PUBLIC {
 
     -- Check the content creator (encryptor) is the issuer that user delegated to issue the credential
-    if $issuer_auth_public_key != $dwg_issuer_public_key {
+    if lower($issuer_auth_public_key) != lower($dwg_issuer_public_key) {
         error('credentials issuer must be an issuer of delegated write grant (issuer_auth_public_key = dwg_issuer_public_key)');
     }
 
