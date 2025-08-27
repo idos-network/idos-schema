@@ -477,6 +477,7 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
         );
 };
 
+-- @generator.paramOptional "issuer_auth_public_key"
 CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $issuer_auth_public_key TEXT) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
