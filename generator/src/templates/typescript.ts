@@ -228,7 +228,6 @@ export function generateTypescript(methods: KwilAction[]) {
           `${prefix}Output`,
           method.returns,
           {
-            optionals: method.generatorComments.paramOptional,
             isArray: method.returnsArray,
             itemName: method.generatorComments.itemName,
             input: false,
