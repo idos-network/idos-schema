@@ -105,30 +105,19 @@ export function generateTypescript(methods: KwilAction[]) {
 
   function generateZodType(name: string, args: Value[], {
     optionals = [],
-    isArray = false,
-    input = true,
-    itemName,
   }: {
     optionals?: string[],
-    isArray?: boolean,
-    input?: boolean,
-    itemName?: string,
-  }): string | undefined {
+  } = {}): string | undefined {
     if (args.length === 0) return;
 
-    const makeArrayType = isArray && input;
-
-    // This item will be generated always (but never as an array!)
-    // it's Name(Item)Schema - item for arrays
-    let generatedItemName = itemName ?? `${name}${makeArrayType ? "Item" : ""}`;
     sourceFile.addVariableStatement({
       declarationKind: VariableDeclarationKind.Const,
       isExported: true,
       declarations: [
         {
-          name: `${generatedItemName}Schema`,
+          name: `${name}Schema`,
           type: writer => {
-            writer.write(`z.ZodObject<`);
+            writer.write(`z.ZodObject < `);
             writer.inlineBlock(() => {
               args.forEach(arg => {
                 writer.write(`${arg.name}: `);
@@ -136,7 +125,7 @@ export function generateTypescript(methods: KwilAction[]) {
                   writer.write("z.ZodNullable<");
                 }
 
-                writer.write(`z.${zodTypeMapping[arg.type]}`);
+                writer.write(`z.${zodTypeMapping[arg.type]} `);
 
                 if (optionals.includes(arg.name)) {
                   writer.write(">");
@@ -164,83 +153,45 @@ export function generateTypescript(methods: KwilAction[]) {
       ],
     });
 
-    // For input arrays we need a ZodArray schema which can we use for parsing.
-    if (makeArrayType) {
-      sourceFile.addVariableStatement({
-        declarationKind: VariableDeclarationKind.Const,
-        isExported: true,
-        declarations: [
-          {
-            name: `${name}Schema`,
-            type: writer => {
-              writer.write(`z.ZodArray<typeof ${itemName}Schema>`);
-            },
-            initializer: writer => {
-              writer.write(`${generatedItemName}Schema.array()`);
-            },
-          },
-        ],
-      });
-
-      // Also this is what we want to type & return
-      sourceFile.addTypeAlias({
-        isExported: true,
-        name,
-        type: `z.infer<typeof ${name}Schema>`,
-      });
-
-      return name;
-    }
-
     // For others just export the type
     sourceFile.addTypeAlias({
       isExported: true,
-      name: generatedItemName,
-      type: `z.infer<typeof ${generatedItemName}Schema>`,
+      name: name,
+      type: `z.infer < typeof ${name}Schema > `,
     });
 
-    return generatedItemName;
+    return name;
   }
 
   methods.forEach(method => {
-    const name = method.generatorComments.name ?? toCamelCase(method.name);
+    const name = toCamelCase(method.name);
     const prefix = name[0].toUpperCase() + name.slice(1);
 
     // Zod schema for inputs
     let inputName: string | undefined = undefined;
     if (method.args.length > 0) {
       inputName = generateZodType(
-        method.generatorComments.inputName ?? `${prefix}Input`,
+        `${prefix}Input`,
         method.args,
         {
           optionals: method.generatorComments.paramOptional,
-          input: true,
         },
       );
     }
 
     let outputName: string | undefined = "void";
     if (method.returns.length > 0) {
-      if (method.generatorComments.forceReturn) {
-        outputName = method.generatorComments.forceReturn;
-      } else {
-        outputName = generateZodType(
-          `${prefix}Output`,
-          method.returns,
-          {
-            isArray: method.returnsArray,
-            itemName: method.generatorComments.itemName,
-            input: false,
-          },
-        );
-      }
+      outputName = generateZodType(
+        `${prefix}Output`,
+        method.returns,
+      );
     }
 
     const functionDeclaration = sourceFile.addFunction({
       name,
       isExported: true,
       isAsync: true,
-      returnType: `Promise<${outputName}${method.returnsArray ? "[]" : ""}>`,
+      returnType: `Promise < ${outputName}${method.returnsArray ? "[]" : ""} > `,
       parameters: [
         {
           name: "kwilClient",
@@ -260,15 +211,15 @@ export function generateTypescript(methods: KwilAction[]) {
     functionDeclaration.setBodyText(writer => {
       let hasReturn = method.returns.length > 0;
       let returnStatement = hasReturn ? "return" : "";
-      let methodCall = hasReturn ? `call<${outputName}[]>` : "execute";
+      let methodCall = hasReturn ? `call < ${outputName}[] > ` : "execute";
 
       if (method.args.length > 0) {
-        writer.writeLine(`const inputs = ${inputName}Schema.parse(params);`);
-        writer.writeLine(`${returnStatement} await kwilClient.${methodCall}(`)
+        writer.writeLine(`const inputs = ${inputName}Schema.parse(params); `);
+        writer.writeLine(`${returnStatement} await kwilClient.${methodCall} (`)
         writer.block(() => {
-          writer.writeLine(`name: "${method.name}",`);
-          writer.writeLine(`inputs,`);
-          writer.conditionalWrite(!!method.generatorComments.description, () => `description: "${method.generatorComments.description}",`);
+          writer.writeLine(`name: "${method.name}", `);
+          writer.writeLine(`inputs, `);
+          writer.conditionalWrite(!!method.generatorComments.description, () => `description: "${method.generatorComments.description}", `);
         });
         writer.conditionalWriteLine(method.generatorComments.notAuthorized, () => `, undefined, // Signer is not required here`);
         // Call always returns an array, if it is one item (not a RETURN TABLE) we need to get the first element

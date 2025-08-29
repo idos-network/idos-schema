@@ -23,13 +23,8 @@ export interface KwilAction {
 }
 
 export interface GeneratorComments {
-  skip: boolean;
   notAuthorized: boolean;
   description: string;
-  name?: string;
-  inputName?: string;
-  itemName?: string;
-  forceReturn?: string;
   paramOptional: string[];
 }
 
@@ -61,13 +56,13 @@ export function parseSchema(schemaPath: string): KwilAction[] {
           console.error("Invalid comment format:", comment);
           return acc;
         }
-         if (result[1] === "paramOptional") {
+        if (result[1] === "paramOptional") {
           if (!acc.paramOptional) {
             acc.paramOptional = [];
           }
 
           acc.paramOptional.push(result[2]?.replace(/\"/g, ""));
-        } else if (["skip", "notAuthorized"].includes(result[1])) {
+        } else if (["notAuthorized"].includes(result[1])) {
           // @ts-expect-error No infer types
           acc[result[1]] = result[2] || true;
         } else {
@@ -85,5 +80,5 @@ export function parseSchema(schemaPath: string): KwilAction[] {
     });
   }
 
-  return actions.filter(action => !action.generatorComments.skip);
+  return actions;
 }

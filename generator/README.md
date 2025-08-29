@@ -29,8 +29,6 @@ The parser expects SQL files containing `CREATE ACTION` statements. Here's an ex
 
 ```sql
 -- @generator.description "Create a new user"
--- @generator.name "createUser"
--- @generator.inputName "CreateUserInput"
 -- @generator.paramOptional "email"
 CREATE ACTION create_user(
     user_id UUID,
@@ -45,14 +43,9 @@ $$;
 
 Use SQL comments to control code generation:
 
-- `@generator.skip` - Skip this action in generation
 - `@generator.description "text"` - Add description for the action
-- `@generator.name "CustomName"` - Override the generated function name
-- `@generator.inputName "InputType"` - Custom input type name
-- `@generator.itemName "ItemType"` - Custom item type name for arrays
 - `@generator.paramOptional "paramName"` - Mark parameter as optional
 - `@generator.notAuthorized` - Mark action as requiring authorization
-- `@generator.forceReturn "type"` - Force return type
 
 ### Example TypeScript Generated Code
 

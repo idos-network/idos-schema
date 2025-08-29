@@ -145,27 +145,26 @@ CREATE INDEX IF NOT EXISTS passporting_memberships_peer_id ON passporting_club_m
 
 -- INSERTER AND DELEGATE ACTIONS
 
--- @generator.skip
+-- @generator.description "Add inserter as owner"
 CREATE OR REPLACE ACTION add_inserter_as_owner($id UUID, $name TEXT) OWNER PUBLIC {
     INSERT INTO inserters (id, name) VALUES ($id, $name);
 };
 
--- @generator.skip
+-- @generator.description "Delete inserter as owner"
 CREATE OR REPLACE ACTION delete_inserter_as_owner($id UUID) OWNER PUBLIC {
     DELETE FROM inserters WHERE id = $id;
 };
 
--- @generator.skip
+-- @generator.description "Add a delegate as owner"
 CREATE OR REPLACE ACTION add_delegate_as_owner($address TEXT, $inserter_id UUID) OWNER PUBLIC {
   INSERT INTO delegates (address, inserter_id) VALUES ($address, $inserter_id);
 };
 
--- @generator.skip
+-- @generator.description "Delete a delegate from idOS"
 CREATE OR REPLACE ACTION delete_delegate_as_owner($address TEXT) OWNER PUBLIC {
   DELETE FROM delegates WHERE address=$address;
 };
 
--- @generator.skip
 CREATE OR REPLACE ACTION get_inserter() PRIVATE VIEW RETURNS (name TEXT) {
     for $row in SELECT inserters.name FROM inserters INNER JOIN delegates ON inserters.id = delegates.inserter_id WHERE delegates.address = @caller {
         return $row.name;
@@ -173,7 +172,6 @@ CREATE OR REPLACE ACTION get_inserter() PRIVATE VIEW RETURNS (name TEXT) {
     error('Unauthorized inserter');
 };
 
--- @generator.skip
 CREATE OR REPLACE ACTION get_inserter_or_null() PRIVATE VIEW RETURNS (name TEXT) {
     for $row in SELECT inserters.name FROM inserters INNER JOIN delegates ON inserters.id = delegates.inserter_id WHERE delegates.address = @caller {
         return $row.name;
@@ -185,15 +183,13 @@ CREATE OR REPLACE ACTION get_inserter_or_null() PRIVATE VIEW RETURNS (name TEXT)
 -- USER ACTIONS
 
 -- @generator.description "Add a user to idOS"
--- @generator.inputName "idOSUser"
--- @generator.name "createUser"
 CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
     $inserter := get_inserter();
     INSERT INTO users (id, recipient_encryption_public_key, encryption_password_store, inserter)
         VALUES ($id, $recipient_encryption_public_key, $encryption_password_store, $inserter);
 };
 
--- @generator.skip
+-- @generator.description "Update user's encryption key and password store in idOS"
 CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
     get_inserter();
     UPDATE users SET recipient_encryption_public_key=$recipient_encryption_public_key, encryption_password_store=$encryption_password_store
@@ -208,7 +204,6 @@ CREATE OR REPLACE ACTION get_user() PUBLIC VIEW RETURNS (id UUID, recipient_encr
     }
 };
 
--- @generator.skip
 CREATE OR REPLACE ACTION get_user_as_inserter($id UUID) PUBLIC VIEW RETURNS (
     id UUID,
     recipient_encryption_public_key TEXT,
@@ -225,7 +220,6 @@ CREATE OR REPLACE ACTION get_user_as_inserter($id UUID) PUBLIC VIEW RETURNS (
 -- WALLET ACTIONS
 
 -- @generator.description "Add a wallet to idOS"
--- @generator.inputName "idOSWallet"
 CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $id UUID,
     $user_id UUID,
@@ -383,7 +377,7 @@ CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
 
 -- CREDENTIAL ACTIONS
 
--- @generator.skip
+-- @generator.description "Add or update a credential in idOS on behalf of a user"
 CREATE OR REPLACE ACTION upsert_credential_as_inserter (
     $id UUID,
     $user_id UUID,
@@ -424,7 +418,7 @@ CREATE OR REPLACE ACTION upsert_credential_as_inserter (
         inserter=$inserter;
 };
 
--- @generator.skip
+-- @generator.description "Add a new credential"
 CREATE OR REPLACE ACTION add_credential (
     $id UUID,
     $issuer_auth_public_key TEXT,
@@ -455,7 +449,6 @@ CREATE OR REPLACE ACTION add_credential (
     );
 };
 
--- @generator.itemName "idOSCredentialListItem"
 CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -506,7 +499,7 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $issuer_a
     }
 };
 
--- @generator.skip
+-- @generator.description "Edit a credential"
 CREATE OR REPLACE ACTION edit_credential (
     $id UUID,
     $public_notes TEXT,
@@ -553,8 +546,6 @@ CREATE OR REPLACE ACTION edit_credential (
 -- All other @caller in the schema are either secp256k1 or nep413
 -- This action can't be called by kwil-cli (as kwil-cli uses secp256k1 only)
 -- @generator.description "Edit a credential in your idOS profile"
--- @generator.inputName "EditCredentialAsIssuerParams"
--- @generator.name "editCredentialAsIssuer"
 CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $public_notes TEXT) PUBLIC {
     UPDATE credentials SET public_notes = $public_notes
     WHERE issuer_auth_public_key = @caller
@@ -656,7 +647,7 @@ CREATE OR REPLACE ACTION create_credential_copy(
 };
 
 -- It can be used with EVM-compatible signatures only
--- @generator.skip
+-- @generator.description "Share a credential through the DAG"
 CREATE OR REPLACE ACTION share_credential_through_dag (
     $id UUID,
     $user_id UUID,
@@ -742,7 +733,6 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
 };
 
 -- @generator.description "Create a new credential in your idOS profile"
--- @generator.name "createCredentialByDelegatedWriteGrant"
 CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $issuer_auth_public_key TEXT,
     $original_encryptor_public_key TEXT,
@@ -910,14 +900,11 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     );
 };
 
--- @generator.skip
 CREATE OR REPLACE ACTION credential_exist_as_inserter($id UUID) PUBLIC VIEW RETURNS (credential_exist BOOL) {
     get_inserter();
     return credential_exist($id);
 };
 
--- @generator.name "getCredentialOwned"
--- @generator.itemName "idOSCredential"
 CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -938,8 +925,6 @@ CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS tab
 };
 
 -- As a credential copy doesn't contain PUBLIC notes, we return respective original credential PUBLIC notes
--- @generator.name "getSharedCredential"
--- @generator.forceReturn "idOSCredential"
 CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -971,7 +956,6 @@ CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS ta
         WHERE c.id = $id;
     };
 
--- @generator.name "getCredentialIdByContentHash"
 CREATE OR REPLACE ACTION get_sibling_credential_id ($content_hash TEXT) PUBLIC VIEW RETURNS (id UUID) {
     for $row in SELECT c.id FROM credentials as c INNER JOIN access_grants as ag ON c.id = ag.data_id
         WHERE ag.content_hash = $content_hash AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
@@ -979,7 +963,6 @@ CREATE OR REPLACE ACTION get_sibling_credential_id ($content_hash TEXT) PUBLIC V
         }
 };
 
--- @generator.skip
 CREATE OR REPLACE ACTION credential_belongs_to_caller($id UUID) PRIVATE VIEW RETURNS (belongs BOOL) {
     for $row in SELECT 1 from credentials
         WHERE id = $id
@@ -991,7 +974,6 @@ CREATE OR REPLACE ACTION credential_belongs_to_caller($id UUID) PRIVATE VIEW RET
     return false;
 };
 
--- @generator.skip
 CREATE OR REPLACE ACTION credential_exist($id UUID) PRIVATE VIEW RETURNS (credential_exist BOOL) {
     for $row in SELECT 1 FROM credentials WHERE id = $id {
         return true;
@@ -1002,7 +984,7 @@ CREATE OR REPLACE ACTION credential_exist($id UUID) PRIVATE VIEW RETURNS (creden
 
 -- ATTRIBUTE ACTIONS
 
--- @generator.skip
+-- @generator.description "Add a new attribute as inserter"
 CREATE OR REPLACE ACTION add_attribute_as_inserter($id UUID, $user_id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
     $inserter := get_inserter();
     INSERT INTO user_attributes (id, user_id, attribute_key, value, inserter)
@@ -1022,7 +1004,6 @@ CREATE OR REPLACE ACTION add_attribute($id UUID, $attribute_key TEXT, $value TEX
     );
 };
 
--- @generator.itemName "idOSUserAttribute"
 CREATE OR REPLACE ACTION get_attributes() PUBLIC VIEW returns table (
     id UUID,
     user_id UUID,
@@ -1043,7 +1024,7 @@ CREATE OR REPLACE ACTION get_attributes() PUBLIC VIEW returns table (
         );
 };
 
--- @generator.skip
+-- @generator.description "Edit an existing attribute"
 CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
     for $row in SELECT 1 FROM user_attributes AS ha
                 INNER JOIN shared_user_attributes AS sha on ha.id = sha.copy_id
@@ -1061,7 +1042,7 @@ CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TE
     );
 };
 
--- @generator.skip
+-- @generator.description "Remove an existing attribute"
 CREATE OR REPLACE ACTION remove_attribute($id UUID) PUBLIC {
     DELETE FROM user_attributes
     WHERE id=$id
@@ -1070,7 +1051,7 @@ CREATE OR REPLACE ACTION remove_attribute($id UUID) PUBLIC {
     );
 };
 
--- @generator.skip
+-- @generator.description "Share an attribute"
 CREATE OR REPLACE ACTION share_attribute($id UUID, $original_attribute_id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
     INSERT INTO user_attributes (id, user_id, attribute_key, value)
     VALUES (
@@ -1089,7 +1070,6 @@ CREATE OR REPLACE ACTION share_attribute($id UUID, $original_attribute_id UUID, 
 
 -- WRITE GRANTS ACTIONS
 
--- @generator.inputName "idOSDelegatedWriteGrant"
 CREATE OR REPLACE ACTION dwg_message(
     $owner_wallet_identifier TEXT,
     $grantee_wallet_identifier TEXT,
@@ -1147,7 +1127,6 @@ CREATE OR REPLACE ACTION revoke_access_grant ($id UUID) PUBLIC {
         OR (wallet_type = 'XRPL' AND address = @caller) OR (wallet_type IN ('NEAR', 'Stellar') AND public_key = @caller));
 };
 
--- @generator.itemName "idOSGrant"
 CREATE OR REPLACE ACTION get_access_grants_owned () PUBLIC VIEW RETURNS table (
     id UUID,
     ag_owner_user_id UUID,
@@ -1166,8 +1145,6 @@ CREATE OR REPLACE ACTION get_access_grants_owned () PUBLIC VIEW RETURNS table (
 -- As arguments can be undefined (user can not send them at all), we have to have default values: page=1, size=20
 -- Page number starts from 1, as UI usually shows to user in pagination element
 -- Ordering is consistent because we use height as first ordering parameter
--- @generator.name "getGrantsPaginated"
--- @generator.forceReturn "idOSGrant"
 -- @generator.paramOptional "user_id"
 CREATE OR REPLACE ACTION get_access_grants_granted ($user_id UUID, $page INT, $size INT) PUBLIC VIEW RETURNS table (
     id UUID,
@@ -1210,7 +1187,6 @@ CREATE OR REPLACE ACTION get_access_grants_granted ($user_id UUID, $page INT, $s
 };
 
 -- @generator.paramOptional "user_id"
--- @generator.name "getGrantsCount"
 CREATE OR REPLACE ACTION get_access_grants_granted_count ($user_id UUID) PUBLIC VIEW RETURNS (count INT) {
     if $user_id is null {
       for $row in SELECT COUNT(1) as count FROM access_grants WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE {
@@ -1225,7 +1201,6 @@ CREATE OR REPLACE ACTION get_access_grants_granted_count ($user_id UUID) PUBLIC 
     }
 };
 
--- @generator.skip
 CREATE OR REPLACE ACTION has_locked_access_grants($id UUID) PUBLIC VIEW RETURNS (has BOOL) {
     for $ag_row in SELECT 1 FROM access_grants
             WHERE data_id = $id
@@ -1255,7 +1230,6 @@ CREATE OR REPLACE ACTION dag_message(
 };
 
 -- @generator.description "Create an Access Grant in idOS"
--- @generator.name "createAccessGrantByDag"
 CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $dag_owner_wallet_identifier TEXT,
     $dag_grantee_wallet_identifier TEXT,
@@ -1319,7 +1293,7 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     );
 };
 
--- @generator.skip
+-- @generator.description "Create a new access grant"
 CREATE OR REPLACE ACTION create_access_grant(
     $grantee_wallet_identifier TEXT,
     $data_id UUID,
@@ -1394,17 +1368,17 @@ CREATE OR REPLACE ACTION has_profile($address TEXT) PUBLIC VIEW returns (has_pro
 
 -- PASSPORTING CLUB ACTIONS
 
--- @generator.skip
+-- @generator.description "Add a new passporting club as owner"
 CREATE OR REPLACE ACTION add_passporting_club_as_owner($id UUID, $name TEXT) OWNER PUBLIC {
     INSERT INTO passporting_clubs (id, name) VALUES ($id, $name);
 };
 
--- @generator.skip
+-- @generator.description "Delete a passporting club as owner"
 CREATE OR REPLACE ACTION delete_passporting_club_as_owner($id UUID) OWNER PUBLIC {
     DELETE FROM passporting_clubs WHERE id = $id;
 };
 
--- @generator.skip
+-- @generator.description "Update a passporting peer as owner"
 CREATE OR REPLACE ACTION add_passporting_peer_as_owner(
     $id UUID,
     $name TEXT,
@@ -1415,12 +1389,12 @@ CREATE OR REPLACE ACTION add_passporting_peer_as_owner(
         VALUES ($id, $name, $issuer_public_key, $passporting_server_url_base);
 };
 
--- @generator.skip
+-- @generator.description "Delete a passporting peer as owner"
 CREATE OR REPLACE ACTION delete_passporting_peer_as_owner($id UUID) OWNER PUBLIC {
     DELETE FROM passporting_peers WHERE id = $id;
 };
 
--- @generator.skip
+-- @generator.description "Update a passporting peer as owner"
 CREATE OR REPLACE ACTION update_passporting_peer_as_owner(
     $id UUID,
     $name TEXT,
@@ -1431,13 +1405,13 @@ CREATE OR REPLACE ACTION update_passporting_peer_as_owner(
         WHERE id = $id;
 };
 
--- @generator.skip
+-- @generator.description "Add a peer to a passporting club as owner"
 CREATE OR REPLACE ACTION add_peer_to_club_as_owner($passporting_club_id UUID, $passporting_peer_id UUID) OWNER PUBLIC {
     INSERT INTO passporting_club_memberships (passporting_club_id, passporting_peer_id)
         VALUES ($passporting_club_id, $passporting_peer_id);
 };
 
--- @generator.skip
+-- @generator.description "Delete a peer from a passporting club as owner"
 CREATE OR REPLACE ACTION delete_peer_from_club_as_owner($passporting_club_id UUID, $passporting_peer_id UUID) OWNER PUBLIC {
     DELETE FROM passporting_club_memberships
         WHERE passporting_club_id = $passporting_club_id AND passporting_peer_id = $passporting_peer_id;
