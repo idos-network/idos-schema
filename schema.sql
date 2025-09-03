@@ -545,7 +545,7 @@ CREATE OR REPLACE ACTION edit_credential (
 -- Be aware that @caller here is ed25519 public key, hex encoded.
 -- All other @caller in the schema are either secp256k1 or nep413
 -- This action can't be called by kwil-cli (as kwil-cli uses secp256k1 only)
--- @generator.description "Edit a credential in your idOS profile"
+-- @generator.description "Edit public notes in a credential as issuer"
 CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $public_notes TEXT) PUBLIC {
     UPDATE credentials SET public_notes = $public_notes
     WHERE issuer_auth_public_key = @caller
