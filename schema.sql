@@ -219,7 +219,7 @@ CREATE OR REPLACE ACTION get_user_as_inserter($id UUID) PUBLIC VIEW RETURNS (
 
 -- WALLET ACTIONS
 
--- @generator.description "Add a wallet to idOS"
+-- @generator.description "Add a wallet to idOS by inserter (profile creator)"
 CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $id UUID,
     $user_id UUID,
