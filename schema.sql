@@ -189,7 +189,7 @@ CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_pu
         VALUES ($id, $recipient_encryption_public_key, $encryption_password_store, $inserter);
 };
 
--- @generator.description "Update user's encryption key and password store in idOS"
+-- @generator.description "Update user's encryption key and password store in idOS as inserter (profile creator)"
 CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
     get_inserter();
     UPDATE users SET recipient_encryption_public_key=$recipient_encryption_public_key, encryption_password_store=$encryption_password_store
