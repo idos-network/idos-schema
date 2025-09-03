@@ -377,7 +377,7 @@ CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
 
 -- CREDENTIAL ACTIONS
 
--- @generator.description "Add or update a credential in idOS on behalf of a user"
+-- @generator.description "Add or update a credential in idOS on behalf of a user by permissioned profile creator (inserter) "
 CREATE OR REPLACE ACTION upsert_credential_as_inserter (
     $id UUID,
     $user_id UUID,
