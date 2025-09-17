@@ -570,7 +570,7 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
     DELETE FROM access_grants WHERE data_id = $id;
 };
 
--- @generator.description "Share a credential with another idOS user"
+-- @generator.description "Share a credential with creating AG"
 CREATE OR REPLACE ACTION share_credential (
     $id UUID,
     $original_credential_id UUID,
