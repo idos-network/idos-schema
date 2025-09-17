@@ -615,7 +615,7 @@ CREATE OR REPLACE ACTION share_credential (
 
 -- Passporting scenario
 
--- @generator.description "Share a credential with another user on idOS"
+-- @generator.description "Share a credential without AG (access grant)"
 CREATE OR REPLACE ACTION create_credential_copy(
     $id UUID,
     $original_credential_id UUID,
