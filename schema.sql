@@ -732,7 +732,7 @@ CREATE OR REPLACE ACTION share_credential_through_dag (
     );
 };
 
--- @generator.description "Create a new credential in your idOS profile"
+-- @generator.description "Add original credential and copy credential with AG on behalf of a user (using delegated write grant given by the user)"
 CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $issuer_auth_public_key TEXT,
     $original_encryptor_public_key TEXT,
