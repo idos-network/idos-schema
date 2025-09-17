@@ -1378,7 +1378,7 @@ CREATE OR REPLACE ACTION delete_passporting_club_as_owner($id UUID) OWNER PUBLIC
     DELETE FROM passporting_clubs WHERE id = $id;
 };
 
--- @generator.description "Update a passporting peer as owner"
+-- @generator.description "Add a passporting peer as owner"
 CREATE OR REPLACE ACTION add_passporting_peer_as_owner(
     $id UUID,
     $name TEXT,
