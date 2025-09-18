@@ -3,6 +3,7 @@ import chalk from 'chalk';
 
 import { parseSchema } from './parser';
 import { generateTypescript } from './templates/typescript';
+import { generateKotlin } from './templates/kotlin';
 
 const program = new Command();
 
@@ -19,7 +20,15 @@ program
   .action((options) => {
     console.log(`Generating KWIL-Actions from ${chalk.green(options.input)} in ${chalk.green(options.format)} format`);
     const ast = parseSchema(options.input);
-    generateTypescript(ast);
+
+    if (options.format === 'ts') {
+      console.log(chalk.green('Generating TypeScript...'));
+      generateTypescript(ast);
+    } else if (options.format === 'kotlin') {
+      console.log(chalk.green('Generating Kotlin...'));
+      generateKotlin(ast);
+    }
   });
 
+console.log(chalk.blue('KWIL-Actions Generator'));
 program.parse(process.argv);

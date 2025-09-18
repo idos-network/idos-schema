@@ -184,6 +184,9 @@ export function generateTypescript(methods: KwilAction[]) {
       outputName = generateZodType(
         `${prefix}Output`,
         method.returns,
+        {
+          optionals: method.generatorComments.returnOptional,
+        },
       );
     }
 
