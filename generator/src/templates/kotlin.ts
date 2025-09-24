@@ -117,7 +117,7 @@ function generateResponseClass(file: fs.WriteStream, methodName: string, returns
     return `    @SerialName("${ret.name}") val ${fieldName}: ${fieldType}${isOptional ? '?' : ''}`;
   }).join(',\n');
   
-  file.write(`${fields}\n`);
+  file.write(`${fields},\n`);
   file.write(')\n\n');
   
   return className;
@@ -138,7 +138,7 @@ function generateParameterClass(file: fs.WriteStream, methodName: string, args: 
     return `    val ${fieldName}: ${fieldType}${isOptional ? '?' : ''}`;
   }).join(',\n');
   
-  file.write(`${fields}\n`);
+  file.write(`${fields},\n`);
   file.write(')\n\n');
   
   return className;
@@ -192,34 +192,36 @@ async function generateViewAction(method: any, outputDir: string) {
   // Generate action class as object
   if (hasParams) {
     file.write(`object ${className} : ViewAction<${paramType}, ${responseType || 'Unit'}> {\n`);
-    file.write(`  override val name: String = "${method.name}"\n`);
-    file.write(`  override val namespace: String = "main"\n\n`);
+    file.write(`    override val name: String = "${method.name}"\n`);
+    file.write(`    override val namespace: String = "main"\n\n`);
     
     // Generate positional types
-    file.write(`  override val positionalTypes: PositionalTypes = listOf(\n`);
-    method.args.forEach((arg: { name: string; type: string }, index: number) => {
+    file.write(`    override val positionalTypes: PositionalTypes =\n`);
+    file.write(`        listOf(\n`);
+    method.args.forEach((arg: { name: string; type: string }) => {
       const type = kotlinSchemaMapping[arg.type] || 'DataType.Text';
-      file.write(`    ${type}${index < method.args.length - 1 ? ',' : ''}\n`);
+      file.write(`            ${type},\n`);
     });
-    file.write(`  )\n\n`);
+    file.write(`        )\n\n`);
     
     // Generate toPositionalParams
-    file.write(`  override fun toPositionalParams(input: ${paramType}): PositionalParams = listOf(\n`);
-    method.args.forEach((arg: { name: string; type: string }, index: number) => {
+    file.write(`    override fun toPositionalParams(input: ${paramType}): PositionalParams =\n`);
+    file.write(`        listOf(\n`);
+    method.args.forEach((arg: { name: string; type: string }) => {
       const fieldName = toCamelCase(arg.name);
       const isUuid = arg.type === 'UUID';
       const isOptional = method.generatorComments?.paramOptional?.includes(arg.name) || false;
       const accessor = isUuid ? (isOptional ? '?.value' : '.value') : '';
-      file.write(`    input.${fieldName}${accessor}${index < method.args.length - 1 ? ',' : ''}\n`);
+      file.write(`            input.${fieldName}${accessor},\n`);
     });
-    file.write(`  )\n`);
+    file.write(`        )\n`);
     
     file.write(`}\n`);
   } else {
     // No parameters - use NoParamsAction
     file.write(`object ${className} : NoParamsAction<${responseType}>() {\n`);
-    file.write(`  override val namespace: String = "main"\n`);
-    file.write(`  override val name: String = "${method.name}"\n`);
+    file.write(`    override val namespace: String = "main"\n`);
+    file.write(`    override val name: String = "${method.name}"\n`);
     file.write(`}\n`);
   }
   
@@ -250,30 +252,42 @@ async function generateExecuteAction(method: any, outputDir: string) {
   
   // Generate action class as object
   file.write(`object ${className} : ExecuteAction<${paramType || 'Unit'}> {\n`);
-  file.write(`  override val name: String = "${method.name}"\n`);
-  file.write(`  override val namespace: String = "main"\n`);
-  file.write(`  override val description: String = "${method.generatorComments.description || ''}"\n\n`);
+  file.write(`    override val name: String = "${method.name}"\n`);
+  file.write(`    override val namespace: String = "main"\n`);
+  
+  // Handle description with line length check
+  const description = method.generatorComments?.description || '';
+  const descriptionLine = `    override val description: String = "${description}"`;
+  
+  if (descriptionLine.length > 140) {
+    file.write('    override val description: String =\n');
+    file.write(`        "${description}"\n\n`);
+  } else {
+    file.write(`${descriptionLine}\n\n`);
+  }
   
   // Generate positional types
-  file.write(`  override val positionalTypes: PositionalTypes = listOf(\n`);
-  method.args.forEach((arg: { type: string; name: string }, index: number) => {
+  file.write(`    override val positionalTypes: PositionalTypes =\n`);
+  file.write(`        listOf(\n`);
+  method.args.forEach((arg: { type: string; name: string }) => {
     const type = kotlinSchemaMapping[arg.type] || 'DataType.Text';
-    file.write(`    ${type}${index < method.args.length - 1 ? ',' : ''}\n`);
+    file.write(`            ${type},\n`);
   });
-  file.write(`  )\n\n`);
+  file.write(`        )\n\n`);
   
   // Generate toPositionalParams
-  file.write(`  override fun toPositionalParams(input: ${paramType || 'Unit'}): PositionalParams = listOf(\n`);
+  file.write(`    override fun toPositionalParams(input: ${paramType || 'Unit'}): PositionalParams =\n`);
+  file.write(`        listOf(\n`);
   if (paramType) {
-    method.args.forEach((arg: { name: string; type: string }, index: number) => {
+    method.args.forEach((arg: { name: string; type: string }) => {
       const fieldName = toCamelCase(arg.name);
       const isUuid = arg.type === 'UUID';
       const isOptional = method.generatorComments?.paramOptional?.includes(arg.name) || false;
       const accessor = isUuid ? (isOptional ? '?.value' : '.value') : '';
-      file.write(`    input.${fieldName}${accessor}${index < method.args.length - 1 ? ',' : ''}\n`);
+      file.write(`            input.${fieldName}${accessor},\n`);
     });
   }
-  file.write(`  )\n`);
+  file.write(`        )\n`);
   
   file.write(`}\n`);
   
