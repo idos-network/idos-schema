@@ -790,7 +790,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     -- @block_timestamp is a timestamp of previous block, which is can be a few seconds earlier
     -- (max is 6 seconds in current network consensus settings) then a time on a requester's machine.
     -- Also, if requester's machine has wrong time, it can be an issue.
-    if parse_unix_timestamp($dwg_not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int > (@block_timestamp + 6)
+    if parse_unix_timestamp($dwg_not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int > (@block_timestamp + 65)
             OR @block_timestamp > parse_unix_timestamp($dwg_not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int {
 
         error('this write grant can only be used after dwg_not_before and before dwg_not_after');
