@@ -449,6 +449,7 @@ CREATE OR REPLACE ACTION add_credential (
     );
 };
 
+-- @generator.returnOptional "original_id", "inserter"
 CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -471,6 +472,7 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
 };
 
 -- @generator.paramOptional "issuer_auth_public_key"
+-- @generator.returnOptional "original_id", "inserter"
 CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $issuer_auth_public_key TEXT) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -905,6 +907,7 @@ CREATE OR REPLACE ACTION credential_exist_as_inserter($id UUID) PUBLIC VIEW RETU
     return credential_exist($id);
 };
 
+-- @generator.returnOptional "inserter"
 CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -925,6 +928,7 @@ CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS tab
 };
 
 -- As a credential copy doesn't contain PUBLIC notes, we return respective original credential PUBLIC notes
+-- @generator.returnOptional "inserter"
 CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -1127,6 +1131,7 @@ CREATE OR REPLACE ACTION revoke_access_grant ($id UUID) PUBLIC {
         OR (wallet_type = 'XRPL' AND address = @caller) OR (wallet_type IN ('NEAR', 'Stellar') AND public_key = @caller));
 };
 
+-- @generator.returnOptional "content_hash"
 CREATE OR REPLACE ACTION get_access_grants_owned () PUBLIC VIEW RETURNS table (
     id UUID,
     ag_owner_user_id UUID,
@@ -1146,6 +1151,7 @@ CREATE OR REPLACE ACTION get_access_grants_owned () PUBLIC VIEW RETURNS table (
 -- Page number starts from 1, as UI usually shows to user in pagination element
 -- Ordering is consistent because we use height as first ordering parameter
 -- @generator.paramOptional "user_id"
+-- @generator.returnOptional "content_hash"
 CREATE OR REPLACE ACTION get_access_grants_granted ($user_id UUID, $page INT, $size INT) PUBLIC VIEW RETURNS table (
     id UUID,
     ag_owner_user_id UUID,
@@ -1340,6 +1346,7 @@ CREATE OR REPLACE ACTION create_access_grant(
     );
 };
 
+-- @generator.returnOptional "content_hash"
 CREATE OR REPLACE ACTION get_access_grants_for_credential($credential_id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     ag_owner_user_id UUID,
