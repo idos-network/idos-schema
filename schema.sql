@@ -759,7 +759,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     -- Check the content creator (encryptor) of credentials is the issuer that user delegated to issue the credentials
     $the_same_issuer := false;
     for $row in SELECT 1 FROM delegates d1 INNER JOIN delegates d2 ON d1.inserter_id = d2.inserter_id
-        WHERE d1.address = lower($issuer_auth_public_key) AND d2.address = lower($dwg_issuer_public_key) LIMIT 1{
+        WHERE d1.address = lower($issuer_auth_public_key) AND d2.address = lower($dwg_issuer_public_key) LIMIT 1 {
         $the_same_issuer := true;
         break;
     }
