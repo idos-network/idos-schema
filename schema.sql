@@ -157,7 +157,7 @@ CREATE OR REPLACE ACTION delete_inserter_as_owner($id UUID) OWNER PUBLIC {
 
 -- @generator.description "Add a delegate as owner"
 CREATE OR REPLACE ACTION add_delegate_as_owner($address TEXT, $inserter_id UUID) OWNER PUBLIC {
-  INSERT INTO delegates (address, inserter_id) VALUES ($address, $inserter_id);
+  INSERT INTO delegates (address, inserter_id) VALUES (lower($address), $inserter_id);
 };
 
 -- @generator.description "Delete a delegate from idOS"
@@ -756,11 +756,16 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $dwg_not_after TEXT,
     $dwg_signature TEXT) PUBLIC {
 
-    -- Check the content creator (encryptor) is the issuer that user delegated to issue the credential
-    if lower($issuer_auth_public_key) != lower($dwg_issuer_public_key) {
-        error('credentials issuer must be an issuer of delegated write grant (issuer_auth_public_key = dwg_issuer_public_key)');
+    -- Check the content creator (encryptor) of credentials is the issuer that user delegated to issue the credentials
+    $the_same_issuer := false;
+    for $row in SELECT 1 FROM delegates d1 INNER JOIN delegates d2 ON d1.inserter_id = d2.inserter_id
+        WHERE d1.address = lower($issuer_auth_public_key) AND d2.address = lower($dwg_issuer_public_key) LIMIT 1{
+        $the_same_issuer := true;
+        break;
     }
-
+    if !$the_same_issuer {
+        error('credentials issuer must be an issuer of delegated write grant');
+    }
 
     -- Get the wallet type and public key for XRPL/NEAR wallets from database
     $dwg_owner_found bool := false;
