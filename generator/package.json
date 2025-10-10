@@ -7,6 +7,8 @@
   },
   "scripts": {
     "start": "tsx src/index.ts",
+    "generate:kotlin": "tsx src/index.ts generate -f kotlin",
+    "generate:typescript": "tsx src/index.ts generate -f ts",
     "parser:build": "nearleyc src/parser/sql-action.ne -o src/parser/sql-action.cjs"
   },
   "dependencies": {

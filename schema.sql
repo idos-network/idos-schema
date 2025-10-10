@@ -157,7 +157,7 @@ CREATE OR REPLACE ACTION delete_inserter_as_owner($id UUID) OWNER PUBLIC {
 
 -- @generator.description "Add a delegate as owner"
 CREATE OR REPLACE ACTION add_delegate_as_owner($address TEXT, $inserter_id UUID) OWNER PUBLIC {
-  INSERT INTO delegates (address, inserter_id) VALUES ($address, $inserter_id);
+  INSERT INTO delegates (address, inserter_id) VALUES (lower($address), $inserter_id);
 };
 
 -- @generator.description "Delete a delegate from idOS"
@@ -418,6 +418,7 @@ CREATE OR REPLACE ACTION add_credential (
     );
 };
 
+-- @generator.returnOptional "original_id", "inserter"
 CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -440,6 +441,7 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
 };
 
 -- @generator.paramOptional "issuer_auth_public_key"
+-- @generator.returnOptional "original_id", "inserter"
 CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $issuer_auth_public_key TEXT) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -639,11 +641,16 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $dwg_not_after TEXT,
     $dwg_signature TEXT) PUBLIC {
 
-    -- Check the content creator (encryptor) is the issuer that user delegated to issue the credential
-    if lower($issuer_auth_public_key) != lower($dwg_issuer_public_key) {
-        error('credentials issuer must be an issuer of delegated write grant (issuer_auth_public_key = dwg_issuer_public_key)');
+    -- Check the content creator (encryptor) of credentials is the issuer that user delegated to issue the credentials
+    $the_same_issuer := false;
+    for $row in SELECT 1 FROM delegates d1 INNER JOIN delegates d2 ON d1.inserter_id = d2.inserter_id
+        WHERE d1.address = lower($issuer_auth_public_key) AND d2.address = lower($dwg_issuer_public_key) LIMIT 1 {
+        $the_same_issuer := true;
+        break;
     }
-
+    if !$the_same_issuer {
+        error('credentials issuer must be an issuer of delegated write grant');
+    }
 
     -- Get the wallet type and public key for XRPL/NEAR wallets from database
     $dwg_owner_found bool := false;
@@ -788,6 +795,7 @@ CREATE OR REPLACE ACTION credential_exist_as_inserter($id UUID) PUBLIC VIEW RETU
     return credential_exist($id);
 };
 
+-- @generator.returnOptional "inserter"
 CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -808,6 +816,7 @@ CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS tab
 };
 
 -- As a credential copy doesn't contain PUBLIC notes, we return respective original credential PUBLIC notes
+-- @generator.returnOptional "inserter"
 CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -1010,6 +1019,7 @@ CREATE OR REPLACE ACTION revoke_access_grant ($id UUID) PUBLIC {
         OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type = 'NEAR' AND public_key = @caller));
 };
 
+-- @generator.returnOptional "content_hash"
 CREATE OR REPLACE ACTION get_access_grants_owned () PUBLIC VIEW RETURNS table (
     id UUID,
     ag_owner_user_id UUID,
@@ -1029,6 +1039,7 @@ CREATE OR REPLACE ACTION get_access_grants_owned () PUBLIC VIEW RETURNS table (
 -- Page number starts from 1, as UI usually shows to user in pagination element
 -- Ordering is consistent because we use height as first ordering parameter
 -- @generator.paramOptional "user_id"
+-- @generator.returnOptional "content_hash"
 CREATE OR REPLACE ACTION get_access_grants_granted ($user_id UUID, $page INT, $size INT) PUBLIC VIEW RETURNS table (
     id UUID,
     ag_owner_user_id UUID,
@@ -1223,6 +1234,7 @@ CREATE OR REPLACE ACTION create_access_grant(
     );
 };
 
+-- @generator.returnOptional "content_hash"
 CREATE OR REPLACE ACTION get_access_grants_for_credential($credential_id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     ag_owner_user_id UUID,

@@ -26,11 +26,16 @@ export interface GeneratorComments {
   notAuthorized: boolean;
   description: string;
   paramOptional: string[];
+  returnOptional: string[];
 }
 
 export interface Value {
   name: string;
   type: KwilActionType;
+}
+
+function parseArrayDescription(input: string): string[] {
+  return input.replace(/\"/g, "").split(",").map(s => s.trim()).filter(s => s.length > 0);
 }
 
 export function parseSchema(schemaPath: string): KwilAction[] {
@@ -61,7 +66,14 @@ export function parseSchema(schemaPath: string): KwilAction[] {
             acc.paramOptional = [];
           }
 
-          acc.paramOptional.push(result[2]?.replace(/\"/g, ""));
+
+          acc.paramOptional.push(...parseArrayDescription(result[2]));
+        } else if (result[1] === "returnOptional") {
+          if (!acc.returnOptional) {
+            acc.returnOptional = [];
+          }
+
+          acc.returnOptional.push(...parseArrayDescription(result[2]));
         } else if (["notAuthorized"].includes(result[1])) {
           // @ts-expect-error No infer types
           acc[result[1]] = result[2] || true;
