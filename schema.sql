@@ -572,6 +572,7 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
     DELETE FROM access_grants WHERE data_id = $id;
 };
 
+-- @generator.description "Rescind a shared credential as a grantee"
 CREATE OR REPLACE ACTION rescind_shared_credential($credential_id UUID) PUBLIC {
     $credential_found := false;
     for $row in SELECT 1 FROM credentials AS c
