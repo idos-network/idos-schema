@@ -13,7 +13,7 @@ export function generateTypescript(methods: KwilAction[]) {
 
   sourceFile.addImportDeclarations([
     {
-      moduleSpecifier: "@kwilteam/kwil-js",
+      moduleSpecifier: "@idos-network/kwil-js",
       namedImports: ["Utils"],
     },
     {

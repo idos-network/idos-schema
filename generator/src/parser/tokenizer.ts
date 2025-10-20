@@ -1,16 +1,17 @@
 import moo from "moo";
 
 const lexer = moo.compile({
-  WS:      /[ \t]+/,
-  COMMENT:   { match: /--.*?$/, lineBreaks: false },
+  WS: /[ \t]+/,
+  COMMENT: { match: /--.*?$/, lineBreaks: false },
   BLOCK_COMMENT: { match: /\/\*[^]*?\*\//, lineBreaks: true },
   SEMICOLON: ';',
-  IDENT:   /[a-zA-Z_][a-zA-Z0-9_)(]*/, // this is required to "default;" or "index();" be split into two tokens
-  OP:      /[<>!=~]+/,
-  LBRACE:  '{',
-  RBRACE:  '}',
-  NL:      { match: /\n/, lineBreaks: true },
-  OTHER:   /[^ \t\n]+/,
+  IDENT: /[a-zA-Z_][a-zA-Z0-9_)(]*/, // this is required to "default;" or "index();" be split into two tokens
+  NUMBER: /[0-9]+/,
+  LBRACE: '{',
+  RBRACE: '}',
+  OP: /[<>!=~]+/,
+  NL: { match: /\n/, lineBreaks: true },
+  OTHER: /[^ \t\n]+/,
 });
 
 export const parseStatements = (file: string) => {
