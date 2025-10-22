@@ -38,10 +38,13 @@ CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW R
 
 CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURNS (TEXT) {
     $evm_addresses TEXT[];
-
-    FOR $row in get_wallets() {
-        IF $row.wallet_type == 'EVM' {
-            $evm_addresses := array_append($evm_addresses, $row.address);
+    IF !has_profile(@caller) {
+        $evm_addresses := array_append($evm_addresses, @caller);
+    } ELSE {
+        FOR $row IN get_wallets() {
+            IF $row.wallet_type == 'EVM' {
+                $evm_addresses := array_append($evm_addresses, $row.address);
+            }
         }
     }
 
@@ -77,8 +80,9 @@ CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
     }
 };
 
+
 CREATE OR REPLACE ACTION from_human_units($amount NUMERIC(6,2)) PRIVATE RETURNS(NUMERIC(78,0)) {
-    $new_amount = ($amount * 100::NUMERIC(6,2))::NUMERIC(78,0);
+    $new_amount := ($amount * 100::NUMERIC(6,2))::NUMERIC(78,0);
 
     RETURN $new_amount * 10000000000000000::NUMERIC(78,0);
 };
@@ -88,7 +92,14 @@ CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
 
     $amount = from_human_units($amount_human);
 
-    idos_token_bridge.lock_admin($evm_address, $amount);
+    IF has_profile(@caller) {
+        -- TODO deduct from user's allowance
+        $amount := $amount - 0::NUMERIC(78,0);
+    }
+
+    IF $amount > 0::NUMERIC(78,0) {
+        idos_token_bridge.lock_admin($evm_address, $amount);
+    }
 };
 
 CREATE OR REPLACE ACTION capture_fee($amount_human NUMERIC(6,2)) PRIVATE {
@@ -119,7 +130,8 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
     recipient_encryption_public_key TEXT NOT NULL,
     encryption_password_store TEXT NOT NULL CHECK (encryption_password_store IN ('user', 'mpc')),
-    inserter TEXT NOT NULL
+    inserter TEXT NOT NULL,
+    gas_allowance NUMERIC(78,0) NOT NULL DEFAULT '100000000000000000000'::NUMERIC(78,0) -- 100 * 10^18
 );
 
 -- for EVM type, address is EVM case insensitive 20 bytes address like 0x5ccbe82FEDE13aecdA449eCA4D4dE05E45861684, and public key can be any or null
@@ -150,6 +162,7 @@ CREATE TABLE IF NOT EXISTS credentials (
     encryptor_public_key TEXT NOT NULL,
     issuer_auth_public_key TEXT NOT NULL,
     inserter TEXT,
+    issuer_fee NUMERIC(78,0) NOT NULL DEFAULT 0,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS credentials_user_id ON credentials(user_id);
