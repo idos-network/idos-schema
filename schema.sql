@@ -26,9 +26,9 @@ CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW R
     $balance NUMERIC(78,0);
 
     if $token == 'IDOS' {
-        $balance := idos_token_bridge.balance($address);
+        $balance = idos_token_bridge.balance($address);
     } else if $token == 'USDC' {
-        $balance := usdc_token_bridge.balance($address);
+        $balance = usdc_token_bridge.balance($address);
     } else {
         ERROR('invalid token');
     }
@@ -39,11 +39,11 @@ CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW R
 CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURNS (TEXT) {
     $evm_addresses TEXT[];
     IF !has_profile(@caller) {
-        $evm_addresses := array_append($evm_addresses, @caller);
+        $evm_addresses = array_append($evm_addresses, @caller);
     } ELSE {
         FOR $row IN get_wallets() {
             IF $row.wallet_type == 'EVM' {
-                $evm_addresses := array_append($evm_addresses, $row.address);
+                $evm_addresses = array_append($evm_addresses, $row.address);
             }
         }
     }
@@ -51,9 +51,9 @@ CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURN
     $balance NUMERIC(78,0);
     FOR $address IN ARRAY $evm_addresses {
         IF $token == 'IDOS' {
-            $balance := idos_token_bridge.balance($address);
+            $balance = idos_token_bridge.balance($address);
         } ELSE IF $token == 'USDC' {
-            $balance := usdc_token_bridge.balance($address);
+            $balance = usdc_token_bridge.balance($address);
         } ELSE {
             ERROR('invalid token');
         }
@@ -90,11 +90,11 @@ CREATE OR REPLACE ACTION from_human_units($amount NUMERIC(6,2)) PRIVATE RETURNS(
 CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
     $evm_address := get_wallet_with_balance('IDOS');
 
-    $amount = from_human_units($amount_human);
+    $amount := from_human_units($amount_human);
 
     IF has_profile(@caller) {
         -- TODO deduct from user's allowance
-        $amount := $amount - 0::NUMERIC(78,0);
+        $amount = $amount - 0::NUMERIC(78,0);
     }
 
     IF $amount > 0::NUMERIC(78,0) {
@@ -105,7 +105,7 @@ CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
 CREATE OR REPLACE ACTION capture_fee($amount_human NUMERIC(6,2)) PRIVATE {
     $evm_address := get_wallet_with_balance('USDC');
 
-    $amount = from_human_units($amount_human) * 1.25;
+    $amount := from_human_units($amount_human) * 1.25;
 
     usdc_token_bridge.lock_admin($evm_address, $amount);
 };
@@ -117,7 +117,7 @@ CREATE OR REPLACE ACTION action_costing_gas() PUBLIC RETURNS (TEXT) {
 };
 
 CREATE OR REPLACE ACTION action_costing_fee() PUBLIC RETURNS (TEXT) {
-    -- TODO add fee field to credentials and look it up
+    -- TODO look up fee from credentials
     capture_fee(1::NUMERIC(6,2));
 
     RETURN 'ok';
