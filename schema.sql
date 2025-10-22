@@ -80,11 +80,18 @@ CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
     }
 };
 
-
 CREATE OR REPLACE ACTION from_human_units($amount NUMERIC(6,2)) PRIVATE RETURNS(NUMERIC(78,0)) {
     $new_amount := ($amount * 100::NUMERIC(6,2))::NUMERIC(78,0);
 
     RETURN $new_amount * 10000000000000000::NUMERIC(78,0);
+};
+
+CREATE OR REPLACE ACTION get_allowance() PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
+    RETURN SELECT users.gas_allowance FROM users INNER JOIN wallets ON users.id = wallets.user_id WHERE (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE) OR (wallets.wallet_type = 'XRPL' AND wallets.address = @caller) OR (wallets.wallet_type IN ('NEAR', 'Stellar') AND wallets.public_key = @caller);
+};
+
+CREATE OR REPLACE ACTION update_allowance($amount NUMERIC(78,0)) PRIVATE {
+    UPDATE users SET gas_allowance=$amount FROM wallets WHERE (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE) OR (wallets.wallet_type = 'XRPL' AND wallets.address = @caller) OR (wallets.wallet_type IN ('NEAR', 'Stellar') AND wallets.public_key = @caller);
 };
 
 CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
@@ -93,21 +100,16 @@ CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
     $amount := from_human_units($amount_human);
 
     IF has_profile(@caller) {
-        -- TODO deduct from user's allowance
-        $amount = $amount - 0::NUMERIC(78,0);
+        $allowance NUMERIC(78,0) := get_allowance();
+
+        update_allowance(greatest($allowance - $amount, 0::NUMERIC(78, 0)));
+
+        $amount = $amount - $allowance;
     }
 
     IF $amount > 0::NUMERIC(78,0) {
         idos_token_bridge.lock_admin($evm_address, $amount);
     }
-};
-
-CREATE OR REPLACE ACTION capture_fee($amount_human NUMERIC(6,2)) PRIVATE {
-    $evm_address := get_wallet_with_balance('USDC');
-
-    $amount := from_human_units($amount_human) * 1.25;
-
-    usdc_token_bridge.lock_admin($evm_address, $amount);
 };
 
 CREATE OR REPLACE ACTION action_costing_gas() PUBLIC RETURNS (TEXT) {
@@ -116,9 +118,22 @@ CREATE OR REPLACE ACTION action_costing_gas() PUBLIC RETURNS (TEXT) {
     RETURN 'ok';
 };
 
-CREATE OR REPLACE ACTION action_costing_fee() PUBLIC RETURNS (TEXT) {
-    -- TODO look up fee from credentials
-    capture_fee(1::NUMERIC(6,2));
+
+CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
+    RETURN SELECT issuer_fee FROM credentials WHERE id = $credential_id;
+};
+
+CREATE OR REPLACE ACTION capture_fee($credential_id UUID) PRIVATE {
+    $evm_address := get_wallet_with_balance('USDC');
+
+    $fee := get_issuer_fee($credential_id);
+    $amount := $fee * 1.25;
+
+    usdc_token_bridge.lock_admin($evm_address, $amount);
+};
+
+CREATE OR REPLACE ACTION action_costing_fee($credential_id UUID) PUBLIC RETURNS (TEXT) {
+    capture_fee($credential_id);
 
     RETURN 'ok';
 };
