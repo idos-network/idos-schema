@@ -7,6 +7,111 @@ REVOKE IF GRANTED SELECT ON main FROM default;
 
 USE IF NOT EXISTS idos AS idos;
 
+USE IF NOT EXISTS erc20 {
+    chain: 'hardhat',
+    escrow: '0xEd16899D278e60a6dBaDB14BDE29724F11677190',
+    distribution_period: '10m'
+} AS idos_token_bridge;
+
+USE IF NOT EXISTS erc20 {
+    chain: 'hardhat',
+    escrow: '0x9d5D917F42239378A14C14722dD002BCacf39c21',
+    distribution_period: '10m'
+} AS usdc_token_bridge;
+
+
+-- GAS AND FEES
+
+CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
+    $balance NUMERIC(78,0);
+
+    if $token == 'IDOS' {
+        $balance := idos_token_bridge.balance($address);
+    } else if $token == 'USDC' {
+        $balance := usdc_token_bridge.balance($address);
+    } else {
+        ERROR('invalid token');
+    }
+
+    RETURN $balance;
+};
+
+CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURNS (TEXT) {
+    $evm_addresses TEXT[];
+
+    FOR $row in get_wallets() {
+        IF $row.wallet_type == 'EVM' {
+            $evm_addresses := array_append($evm_addresses, $row.address);
+        }
+    }
+
+    $balance NUMERIC(78,0);
+    FOR $address IN ARRAY $evm_addresses {
+        IF $token == 'IDOS' {
+            $balance := idos_token_bridge.balance($address);
+        } ELSE IF $token == 'USDC' {
+            $balance := usdc_token_bridge.balance($address);
+        } ELSE {
+            ERROR('invalid token');
+        }
+
+        IF $balance > 0::NUMERIC(78,0) {
+            RETURN $address;
+        }
+    }
+};
+
+CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
+    $evm_address := get_wallet_with_balance($token);
+    $balance := check_balance($evm_address, $token);
+
+    -- we use lock_admin()+issue() because bridge() is tied to @caller
+    IF $token == 'IDOS' {
+        idos_token_bridge.lock_admin($evm_address, $balance);
+        idos_token_bridge.issue($evm_address, $balance);
+    } ELSE IF $token == 'USDC' {
+        usdc_token_bridge.lock_admin($evm_address, $balance);
+        usdc_token_bridge.issue($evm_address, $balance);
+    } ELSE {
+        ERROR('invalid token');
+    }
+};
+
+CREATE OR REPLACE ACTION from_human_units($amount NUMERIC(6,2)) PRIVATE RETURNS(NUMERIC(78,0)) {
+    $new_amount = ($amount * 100::NUMERIC(6,2))::NUMERIC(78,0);
+
+    RETURN $new_amount * 10000000000000000::NUMERIC(78,0);
+};
+
+CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
+    $evm_address := get_wallet_with_balance('IDOS');
+
+    $amount = from_human_units($amount_human);
+
+    idos_token_bridge.lock_admin($evm_address, $amount);
+};
+
+CREATE OR REPLACE ACTION capture_fee($amount_human NUMERIC(6,2)) PRIVATE {
+    $evm_address := get_wallet_with_balance('USDC');
+
+    $amount = from_human_units($amount_human) * 1.25;
+
+    usdc_token_bridge.lock_admin($evm_address, $amount);
+};
+
+CREATE OR REPLACE ACTION action_costing_gas() PUBLIC RETURNS (TEXT) {
+    capture_gas(1.2::NUMERIC(6,2));
+
+    RETURN 'ok';
+};
+
+CREATE OR REPLACE ACTION action_costing_fee() PUBLIC RETURNS (TEXT) {
+    -- TODO add fee field to credentials and look it up
+    capture_fee(1::NUMERIC(6,2));
+
+    RETURN 'ok';
+};
+
 
 -- TABLES
 
