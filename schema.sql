@@ -541,13 +541,14 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
     DELETE FROM access_grants WHERE data_id = $id;
 };
 
+-- @generator.description "Rescind a shared credential as a grantee"
 CREATE OR REPLACE ACTION rescind_shared_credential($credential_id UUID) PUBLIC {
     $credential_found := false;
     for $row in SELECT 1 FROM credentials AS c
         INNER JOIN access_grants AS ag ON c.id = ag.data_id
         INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
         INNER JOIN credentials AS oc ON oc.id = sc.original_id
-            WHERE c.id = $credential_id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE LIMIT 1{
+            WHERE c.id = $credential_id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE LIMIT 1 {
         $credential_found := true;
         break;
     }
