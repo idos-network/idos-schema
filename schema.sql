@@ -20,125 +20,6 @@ USE IF NOT EXISTS erc20 {
 } AS usdc_token_bridge;
 
 
--- GAS AND FEES
-
-CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
-    $balance NUMERIC(78,0);
-
-    if $token == 'IDOS' {
-        $balance = idos_token_bridge.balance($address);
-    } else if $token == 'USDC' {
-        $balance = usdc_token_bridge.balance($address);
-    } else {
-        ERROR('invalid token');
-    }
-
-    RETURN $balance;
-};
-
-CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURNS (TEXT) {
-    $evm_addresses TEXT[];
-    IF !has_profile(@caller) {
-        $evm_addresses = array_append($evm_addresses, @caller);
-    } ELSE {
-        FOR $row IN get_wallets() {
-            IF $row.wallet_type == 'EVM' {
-                $evm_addresses = array_append($evm_addresses, $row.address);
-            }
-        }
-    }
-
-    $balance NUMERIC(78,0);
-    FOR $address IN ARRAY $evm_addresses {
-        IF $token == 'IDOS' {
-            $balance = idos_token_bridge.balance($address);
-        } ELSE IF $token == 'USDC' {
-            $balance = usdc_token_bridge.balance($address);
-        } ELSE {
-            ERROR('invalid token');
-        }
-
-        IF $balance > 0::NUMERIC(78,0) {
-            RETURN $address;
-        }
-    }
-};
-
-CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
-    $evm_address := get_wallet_with_balance($token);
-    $balance := check_balance($evm_address, $token);
-
-    -- we use lock_admin()+issue() because bridge() is tied to @caller
-    IF $token == 'IDOS' {
-        idos_token_bridge.lock_admin($evm_address, $balance);
-        idos_token_bridge.issue($evm_address, $balance);
-    } ELSE IF $token == 'USDC' {
-        usdc_token_bridge.lock_admin($evm_address, $balance);
-        usdc_token_bridge.issue($evm_address, $balance);
-    } ELSE {
-        ERROR('invalid token');
-    }
-};
-
-CREATE OR REPLACE ACTION from_human_units($amount NUMERIC(6,2)) PRIVATE RETURNS(NUMERIC(78,0)) {
-    $new_amount := ($amount * 100::NUMERIC(6,2))::NUMERIC(78,0);
-
-    RETURN $new_amount * 10000000000000000::NUMERIC(78,0);
-};
-
-CREATE OR REPLACE ACTION get_allowance() PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
-    RETURN SELECT users.gas_allowance FROM users INNER JOIN wallets ON users.id = wallets.user_id WHERE (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE) OR (wallets.wallet_type = 'XRPL' AND wallets.address = @caller) OR (wallets.wallet_type IN ('NEAR', 'Stellar') AND wallets.public_key = @caller);
-};
-
-CREATE OR REPLACE ACTION update_allowance($amount NUMERIC(78,0)) PRIVATE {
-    UPDATE users SET gas_allowance=$amount FROM wallets WHERE (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE) OR (wallets.wallet_type = 'XRPL' AND wallets.address = @caller) OR (wallets.wallet_type IN ('NEAR', 'Stellar') AND wallets.public_key = @caller);
-};
-
-CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
-    $evm_address := get_wallet_with_balance('IDOS');
-
-    $amount := from_human_units($amount_human);
-
-    IF has_profile(@caller) {
-        $allowance NUMERIC(78,0) := get_allowance();
-
-        update_allowance(greatest($allowance - $amount, 0::NUMERIC(78, 0)));
-
-        $amount = $amount - $allowance;
-    }
-
-    IF $amount > 0::NUMERIC(78,0) {
-        idos_token_bridge.lock_admin($evm_address, $amount);
-    }
-};
-
-CREATE OR REPLACE ACTION action_costing_gas() PUBLIC RETURNS (TEXT) {
-    capture_gas(1.2::NUMERIC(6,2));
-
-    RETURN 'ok';
-};
-
-
-CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
-    RETURN SELECT issuer_fee FROM credentials WHERE id = $credential_id;
-};
-
-CREATE OR REPLACE ACTION capture_fee($credential_id UUID) PRIVATE {
-    $evm_address := get_wallet_with_balance('USDC');
-
-    $fee := get_issuer_fee($credential_id);
-    $amount := $fee * 1.25;
-
-    usdc_token_bridge.lock_admin($evm_address, $amount);
-};
-
-CREATE OR REPLACE ACTION action_costing_fee($credential_id UUID) PUBLIC RETURNS (TEXT) {
-    capture_fee($credential_id);
-
-    RETURN 'ok';
-};
-
-
 -- TABLES
 
 CREATE TABLE IF NOT EXISTS users (
@@ -1603,4 +1484,144 @@ CREATE OR REPLACE ACTION get_passporting_peers() VIEW PUBLIC returns table (
     JOIN passporting_clubs pc ON pcp.passporting_club_id = pc.id
     WHERE pcp.passporting_club_id IN (SELECT passporting_club_id FROM input_peer_clubs)
         AND p.issuer_public_key <> @caller COLLATE NOCASE;
+};
+
+-- GAS AND FEES
+
+CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
+    $balance NUMERIC(78,0);
+
+    if $token == 'IDOS' {
+        $balance = idos_token_bridge.balance($address);
+    } else if $token == 'USDC' {
+        $balance = usdc_token_bridge.balance($address);
+    } else {
+        ERROR('invalid token');
+    }
+
+    RETURN $balance;
+};
+
+CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURNS (TEXT) {
+    $evm_addresses TEXT[];
+    IF !has_profile(@caller) {
+        $wallet_type := idos.determine_wallet_type(@caller);
+        if $wallet_type == 'EVM' {
+            $evm_addresses = array_append($evm_addresses, @caller);
+        }
+    } ELSE {
+        FOR $row IN get_wallets() {
+            IF $row.wallet_type == 'EVM' {
+                $evm_addresses = array_append($evm_addresses, $row.address);
+            }
+        }
+    }
+
+    $balance NUMERIC(78,0);
+    FOR $address IN ARRAY $evm_addresses {
+        IF $token == 'IDOS' {
+            $balance = idos_token_bridge.balance($address);
+        } ELSE IF $token == 'USDC' {
+            $balance = usdc_token_bridge.balance($address);
+        } ELSE {
+            ERROR('invalid token');
+        }
+
+        IF $balance > 0::NUMERIC(78,0) {
+            RETURN $address;
+        }
+    }
+
+    return null;
+};
+
+CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
+    $evm_address := get_wallet_with_balance($token);
+    if $evm_address is null {
+        ERROR('no wallet with balance found');
+    }
+
+    $balance := check_balance($evm_address, $token);
+
+    -- we use lock_admin()+issue() because bridge() is tied to @caller
+    IF $token == 'IDOS' {
+        idos_token_bridge.lock_admin($evm_address, $balance);
+        idos_token_bridge.issue($evm_address, $balance);
+    } ELSE IF $token == 'USDC' {
+        usdc_token_bridge.lock_admin($evm_address, $balance);
+        usdc_token_bridge.issue($evm_address, $balance);
+    } ELSE {
+        ERROR('invalid token');
+    }
+};
+
+CREATE OR REPLACE ACTION from_human_units($amount NUMERIC(6,2)) PRIVATE RETURNS(NUMERIC(78,0)) {
+    $new_amount := ($amount * 100::NUMERIC(6,2))::NUMERIC(78,0);
+
+    RETURN $new_amount * 10000000000000000::NUMERIC(78,0);
+};
+
+CREATE OR REPLACE ACTION get_allowance() PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
+    RETURN SELECT users.gas_allowance FROM users
+        INNER JOIN wallets ON users.id = wallets.user_id
+        WHERE (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
+            OR (wallets.wallet_type = 'XRPL' AND wallets.address = @caller)
+            OR (wallets.wallet_type IN ('NEAR', 'Stellar') AND wallets.public_key = @caller);
+};
+
+CREATE OR REPLACE ACTION update_allowance($amount NUMERIC(78,0)) PRIVATE {
+    UPDATE users SET gas_allowance=$amount FROM wallets
+        WHERE users.id = wallets.user_id AND
+            ((wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
+            OR (wallets.wallet_type = 'XRPL' AND wallets.address = @caller)
+            OR (wallets.wallet_type IN ('NEAR', 'Stellar') AND wallets.public_key = @caller));
+};
+
+CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
+    $evm_address := get_wallet_with_balance('IDOS');
+    if $evm_address is null {
+        ERROR('no wallet with balance found');
+    }
+
+    $amount := from_human_units($amount_human);
+
+    IF has_profile(@caller) {
+        $allowance NUMERIC(78,0) := get_allowance();
+
+        update_allowance(greatest($allowance - $amount, 0::NUMERIC(78, 0)));
+
+        $amount = $amount - $allowance;
+    }
+
+    IF $amount > 0::NUMERIC(78,0) {
+        idos_token_bridge.lock_admin($evm_address, $amount);
+    }
+};
+
+CREATE OR REPLACE ACTION action_costing_gas() PUBLIC RETURNS (TEXT) {
+    capture_gas(1.2::NUMERIC(6,2));
+
+    RETURN 'ok';
+};
+
+CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
+    RETURN SELECT issuer_fee FROM credentials WHERE id = $credential_id;
+};
+
+CREATE OR REPLACE ACTION capture_fee($credential_id UUID) PRIVATE {
+    $evm_address := get_wallet_with_balance('USDC');
+    if $evm_address is null {
+        ERROR('no wallet with balance found');
+    }
+
+    $fee := get_issuer_fee($credential_id);
+    $amount := $fee * 1.25;
+
+    usdc_token_bridge.lock_admin($evm_address, $amount);
+};
+
+CREATE OR REPLACE ACTION action_costing_fee($credential_id UUID) PUBLIC RETURNS (TEXT) {
+    capture_fee($credential_id);
+
+    RETURN 'ok';
 };
