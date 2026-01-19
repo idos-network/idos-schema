@@ -8,14 +8,14 @@ REVOKE IF GRANTED SELECT ON main FROM default;
 USE IF NOT EXISTS idos AS idos;
 
 USE IF NOT EXISTS erc20 {
-    chain: 'arbitrumsepolia',
-    escrow: '0x52DE0ea92Fe07074D053a3216b391C412d5b548f',
+    chain: 'arbitrum_one',
+    escrow: '0x0dc9A81e5E170D85885F8151F51aA5160A0a3C7C',
     distribution_period: '10m'
 } AS idos_token_bridge;
 
 USE IF NOT EXISTS erc20 {
-    chain: 'arbitrumsepolia',
-    escrow: '0x581A97E0D924b23DE5A641ec354739478d0900e2',
+    chain: 'arbitrum_one',
+    escrow: '0x2Ea8775B281287594FD0a3D68e12100cEC754f47',
     distribution_period: '10m'
 } AS usdc_token_bridge;
 

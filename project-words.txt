@@ -13,3 +13,4 @@ permissioned
 secp256k1
 timelock
 xrpl
+arbitrumsepolia
