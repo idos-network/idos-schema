@@ -8,14 +8,14 @@ REVOKE IF GRANTED SELECT ON main FROM default;
 USE IF NOT EXISTS idos AS idos;
 
 USE IF NOT EXISTS erc20 {
-    chain: 'hardhat',
-    escrow: '0xEd16899D278e60a6dBaDB14BDE29724F11677190',
+    chain: 'arbitrumsepolia',
+    escrow: '0x52DE0ea92Fe07074D053a3216b391C412d5b548f',
     distribution_period: '10m'
 } AS idos_token_bridge;
 
 USE IF NOT EXISTS erc20 {
-    chain: 'hardhat',
-    escrow: '0x9d5D917F42239378A14C14722dD002BCacf39c21',
+    chain: 'arbitrumsepolia',
+    escrow: '0x581A97E0D924b23DE5A641ec354739478d0900e2',
     distribution_period: '10m'
 } AS usdc_token_bridge;
 
@@ -1486,9 +1486,10 @@ CREATE OR REPLACE ACTION get_passporting_peers() VIEW PUBLIC returns table (
         AND p.issuer_public_key <> @caller COLLATE NOCASE;
 };
 
+
 -- GAS AND FEES
 
-CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
+CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW RETURNS (balance NUMERIC(78,0)) {
     $balance NUMERIC(78,0);
 
     if $token == 'IDOS' {
@@ -1502,7 +1503,7 @@ CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW R
     RETURN $balance;
 };
 
-CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURNS (TEXT) {
+CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURNS (wallet_address TEXT) {
     $evm_addresses TEXT[];
     IF !has_profile(@caller) {
         $wallet_type := idos.determine_wallet_type(@caller);
@@ -1555,7 +1556,7 @@ CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
     }
 };
 
-CREATE OR REPLACE ACTION from_human_units($amount NUMERIC(6,2)) PRIVATE RETURNS(NUMERIC(78,0)) {
+CREATE OR REPLACE ACTION from_human_units($amount NUMERIC(6,2)) PRIVATE VIEW RETURNS(NUMERIC(78,0)) {
     $new_amount := ($amount * 100::NUMERIC(6,2))::NUMERIC(78,0);
 
     RETURN $new_amount * 10000000000000000::NUMERIC(78,0);
@@ -1598,13 +1599,11 @@ CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
     }
 };
 
-CREATE OR REPLACE ACTION action_costing_gas() PUBLIC RETURNS (TEXT) {
+CREATE OR REPLACE ACTION action_costing_gas() PUBLIC {
     capture_gas(1.2::NUMERIC(6,2));
-
-    RETURN 'ok';
 };
 
-CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
+CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS (issuer_fee NUMERIC(78,0)) {
     RETURN SELECT issuer_fee FROM credentials WHERE id = $credential_id;
 };
 
@@ -1620,8 +1619,6 @@ CREATE OR REPLACE ACTION capture_fee($credential_id UUID) PRIVATE {
     usdc_token_bridge.lock_admin($evm_address, $amount);
 };
 
-CREATE OR REPLACE ACTION action_costing_fee($credential_id UUID) PUBLIC RETURNS (TEXT) {
+CREATE OR REPLACE ACTION action_costing_fee($credential_id UUID) PUBLIC {
     capture_fee($credential_id);
-
-    RETURN 'ok';
 };
