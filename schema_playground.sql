@@ -1603,6 +1603,17 @@ CREATE OR REPLACE ACTION action_costing_gas() PUBLIC {
     capture_gas(1.2::NUMERIC(6,2));
 };
 
+CREATE OR REPLACE ACTION action_costing_idos_token($amount NUMERIC(78,0)) PUBLIC {
+    $evm_address := get_wallet_with_balance('IDOS');
+    if $evm_address is null {
+        ERROR('no wallet with balance found');
+    }
+
+    IF $amount > 0::NUMERIC(78,0) {
+        idos_token_bridge.lock_admin($evm_address, $amount);
+    }
+};
+
 CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS (issuer_fee NUMERIC(78,0)) {
     RETURN SELECT issuer_fee FROM credentials WHERE id = $credential_id;
 };
@@ -1622,3 +1633,15 @@ CREATE OR REPLACE ACTION capture_fee($credential_id UUID) PRIVATE {
 CREATE OR REPLACE ACTION action_costing_fee($credential_id UUID) PUBLIC {
     capture_fee($credential_id);
 };
+
+CREATE OR REPLACE ACTION request_balance_withdrawal($token TEXT, $evm_address_to TEXT) PUBLIC OWNER {
+    IF $token == 'IDOS' {
+        _, _, _, _, _, $balance, _, _, _ := idos_token_bridge.info();
+        idos_token_bridge.issue($evm_address_to, $balance);
+    } ELSE IF $token == 'USDC' {
+                _, _, _, _, _, $balance, _, _, _ := usdc_token_bridge.info();
+        usdc_token_bridge.issue($evm_address_to, $balance);
+    } ELSE {
+        ERROR('invalid token');
+    }
+}
