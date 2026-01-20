@@ -510,7 +510,7 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $issuer_a
           INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
           INNER JOIN credentials as oc ON oc.id = sc.original_id
           WHERE c.user_id = $user_id
-            AND c.issuer_auth_public_key = $issuer_auth_public_key
+            AND oc.issuer_auth_public_key = $issuer_auth_public_key
             AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
     }
 };
