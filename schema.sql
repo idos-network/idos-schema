@@ -485,9 +485,9 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
         );
 };
 
--- @generator.paramOptional "issuer_auth_public_key"
+-- @generator.paramOptional "original_issuer_auth_public_key"
 -- @generator.returnOptional "original_id", "inserter"
-CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $issuer_auth_public_key TEXT) PUBLIC VIEW RETURNS table (
+CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $original_issuer_auth_public_key TEXT) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
     public_notes TEXT,
@@ -495,7 +495,7 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $issuer_a
     issuer_auth_public_key TEXT,
     inserter TEXT,
     original_id UUID) {
-    if $issuer_auth_public_key is null {
+    if $original_issuer_auth_public_key is null {
       return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
           FROM credentials AS c
           INNER JOIN access_grants as ag ON c.id = ag.data_id
@@ -510,7 +510,7 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $issuer_a
           INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
           INNER JOIN credentials as oc ON oc.id = sc.original_id
           WHERE c.user_id = $user_id
-            AND oc.issuer_auth_public_key = $issuer_auth_public_key
+            AND oc.issuer_auth_public_key = $original_issuer_auth_public_key
             AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
     }
 };
