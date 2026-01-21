@@ -44,7 +44,7 @@ export function generateTypescript(methods: KwilAction[]) {
     name: "ActionSchemaElement",
     type: `{
       name: string;
-      type: typeof DataType.Uuid | typeof DataType.Text | typeof DataType.Int;
+      type: typeof DataType.Uuid | typeof DataType.Text | typeof DataType.Int | typeof DataType.Boolean | typeof DataType.Numeric;
     }`,
   })
 
@@ -55,6 +55,7 @@ export function generateTypescript(methods: KwilAction[]) {
     BOOLEAN: "DataType.Boolean",
     BOOL: "DataType.Boolean",
     INT8: "DataType.Int",
+    NUMERIC: "DataType.Numeric",
   }
 
   // Generate action schema
@@ -92,6 +93,7 @@ export function generateTypescript(methods: KwilAction[]) {
     BOOLEAN: "boolean",
     BOOL: "boolean",
     INT8: "number",
+    NUMERIC: "number",
   }
 
   const zodTypeMapping = {
@@ -101,6 +103,7 @@ export function generateTypescript(methods: KwilAction[]) {
     BOOLEAN: "ZodBoolean",
     BOOL: "ZodBoolean",
     INT8: "ZodNumber",
+    NUMERIC: "ZodNumber",
   }
 
   function generateZodType(name: string, args: Value[], {

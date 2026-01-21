@@ -98,7 +98,9 @@ var grammar = {
           }
         }
         },
-    {"name": "arg", "symbols": ["IDENT", "_", "TYPE"], "postprocess":  d => {
+    {"name": "arg$ebnf$1", "symbols": ["withPrecision"], "postprocess": id},
+    {"name": "arg$ebnf$1", "symbols": [], "postprocess": function(d) {return null;}},
+    {"name": "arg", "symbols": ["IDENT", "_", "TYPE", "arg$ebnf$1"], "postprocess":  d => {
           const fields = d.flat(50).filter(Boolean);
           const name = fields.find(f => f.type === "IDENT");
           const type = fields.find(f => f.type === "TYPE");
@@ -108,6 +110,7 @@ var grammar = {
             type: type?.value,
           }
         } },
+    {"name": "withPrecision", "symbols": ["LPAREN", "_", "PRECISION", "_", "RPAREN"], "postprocess": () => null},
     {"name": "orReplace", "symbols": ["OR", "_", "REPLACE", "_"], "postprocess": () => ({ type: "orReplace", value: true })},
     {"name": "public$ebnf$1", "symbols": []},
     {"name": "public$ebnf$1", "symbols": ["public$ebnf$1", "wsOrNl"], "postprocess": function arrpush(d) {return d[0].concat([d[1]]);}},
@@ -136,6 +139,7 @@ var grammar = {
     {"name": "token", "symbols": ["VIEW"]},
     {"name": "token", "symbols": ["OR"]},
     {"name": "token", "symbols": ["LBRACE"]},
+    {"name": "token", "symbols": ["PRECISION"]},
     {"name": "token", "symbols": ["OWNER"], "postprocess": () => null},
     {"name": "wsOrNl", "symbols": ["WS"], "postprocess": () => null},
     {"name": "wsOrNl", "symbols": ["NL"], "postprocess": () => null},
@@ -161,6 +165,7 @@ var grammar = {
     {"name": "TABLE", "symbols": [(lexer.has("TABLE") ? {type: "TABLE"} : TABLE)]},
     {"name": "LBRACE", "symbols": [(lexer.has("LBRACE") ? {type: "LBRACE"} : LBRACE)]},
     {"name": "OWNER", "symbols": [(lexer.has("OWNER") ? {type: "OWNER"} : OWNER)]},
+    {"name": "PRECISION", "symbols": [(lexer.has("PRECISION") ? {type: "PRECISION"} : PRECISION)]},
     {"name": "PRIVATE", "symbols": [(lexer.has("PRIVATE") ? {type: "PRIVATE"} : PRIVATE)]}
 ]
   , ParserStart: "main"

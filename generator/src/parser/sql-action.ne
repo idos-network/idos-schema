@@ -63,7 +63,7 @@ args -> arg (COMMA wsOrNl:* arg):*
   }
   %}
 
-arg -> IDENT _ TYPE
+arg -> IDENT _ TYPE withPrecision:?
   {% d => {
     const fields = d.flat(50).filter(Boolean);
     const name = fields.find(f => f.type === "IDENT");
@@ -75,6 +75,8 @@ arg -> IDENT _ TYPE
     }
   } %}
 
+withPrecision -> LPAREN _ PRECISION _ RPAREN {% () => null %}
+
 orReplace -> OR _ REPLACE _ {% () => ({ type: "orReplace", value: true }) %}
 
 public -> PUBLIC wsOrNl:* {% () => ({ type: "public", value: true }) %}
@@ -84,7 +86,7 @@ private -> PRIVATE wsOrNl:* {% () => ({ type: "private", value: true }) %}
 
 otherLine -> token:* NL  {% () => null %}
 
-token ->  WORD | WS | IDENT | TABLE | LPAREN | RPAREN | COMMA | TYPE | PUBLIC | VIEW | OR | LBRACE | OWNER {% () => null %} 
+token ->  WORD | WS | IDENT | TABLE | LPAREN | RPAREN | COMMA | TYPE | PUBLIC | VIEW | OR | LBRACE | PRECISION | OWNER {% () => null %} 
 
 wsOrNl -> WS {% () => null %}
         | NL {% () => null %}
@@ -110,4 +112,5 @@ RETURNS -> %RETURNS
 TABLE -> %TABLE
 LBRACE -> %LBRACE
 OWNER -> %OWNER
+PRECISION -> %PRECISION
 PRIVATE -> %PRIVATE
