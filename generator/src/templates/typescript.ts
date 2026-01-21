@@ -44,7 +44,7 @@ export function generateTypescript(methods: KwilAction[]) {
     name: "ActionSchemaElement",
     type: `{
       name: string;
-      type: typeof DataType.Uuid | typeof DataType.Text | typeof DataType.Int;
+      type: typeof DataType.Uuid | typeof DataType.Text | typeof DataType.Int | typeof DataType.Boolean;
     }`,
   })
 
@@ -55,6 +55,7 @@ export function generateTypescript(methods: KwilAction[]) {
     BOOLEAN: "DataType.Boolean",
     BOOL: "DataType.Boolean",
     INT8: "DataType.Int",
+    NUMERIC: "DataType.Int",
   }
 
   // Generate action schema
@@ -92,6 +93,7 @@ export function generateTypescript(methods: KwilAction[]) {
     BOOLEAN: "boolean",
     BOOL: "boolean",
     INT8: "number",
+    NUMERIC: "number",
   }
 
   const zodTypeMapping = {
@@ -101,6 +103,7 @@ export function generateTypescript(methods: KwilAction[]) {
     BOOLEAN: "ZodBoolean",
     BOOL: "ZodBoolean",
     INT8: "ZodNumber",
+    NUMERIC: "ZodNumber",
   }
 
   function generateZodType(name: string, args: Value[], {
@@ -211,6 +214,11 @@ export function generateTypescript(methods: KwilAction[]) {
       functionDeclaration.addJsDoc(method.comments.join("\n"));
     }
 
+    if (method.name == "action_costing_gas") {
+      console.log("Generating action_costing_gas with description:", method.generatorComments.description);
+    }
+
+
     functionDeclaration.setBodyText(writer => {
       let hasReturn = method.returns.length > 0;
       let returnStatement = hasReturn ? "return" : "";
@@ -229,7 +237,13 @@ export function generateTypescript(methods: KwilAction[]) {
         writer.conditionalWrite(hasReturn && !method.returnsArray, () => `).then(result => result[0]`);
         writer.write(");");
       } else {
-        writer.write(`${returnStatement} await kwilClient.${methodCall}({ name: "${method.name}", inputs: {} })`);
+        writer.write(`${returnStatement} await kwilClient.${methodCall}(`);
+        writer.block(() => {
+          writer.write(`name: "${method.name}",`);
+          writer.write(`inputs: {},`);
+          writer.conditionalWrite(!!method.generatorComments.description, () => `description: "${method.generatorComments.description}", `);
+        });
+        writer.write(")");
         writer.conditionalWrite(hasReturn && !method.returnsArray, () => `.then(result => result[0])`);
         writer.write(";");
       }
