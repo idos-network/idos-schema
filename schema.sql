@@ -1536,6 +1536,7 @@ CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURN
     return null;
 };
 
+-- @generator.description "Request a withdrawal of all tokens from idOS to user's EVM wallet"
 CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
     $evm_address := get_wallet_with_balance($token);
     if $evm_address is null {
@@ -1570,6 +1571,7 @@ CREATE OR REPLACE ACTION get_allowance() PUBLIC VIEW RETURNS (allowance NUMERIC(
             OR (wallets.wallet_type IN ('NEAR', 'Stellar') AND wallets.public_key = @caller);
 };
 
+-- @generator.description "Update gas allowance for the caller"
 CREATE OR REPLACE ACTION update_allowance($amount NUMERIC(78,0)) PRIVATE {
     UPDATE users SET gas_allowance=$amount FROM wallets
         WHERE users.id = wallets.user_id AND
@@ -1578,6 +1580,7 @@ CREATE OR REPLACE ACTION update_allowance($amount NUMERIC(78,0)) PRIVATE {
             OR (wallets.wallet_type IN ('NEAR', 'Stellar') AND wallets.public_key = @caller));
 };
 
+-- @generator.description "Capture gas cost from the caller"
 CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
     $evm_address := get_wallet_with_balance('IDOS');
     if $evm_address is null {
@@ -1599,10 +1602,12 @@ CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
     }
 };
 
+-- @generator.description "Get cost of action for 1.2 gas"
 CREATE OR REPLACE ACTION action_costing_gas() PUBLIC {
     capture_gas(1.2::NUMERIC(6,2));
 };
 
+-- @generator.description "Action that captures IDOS tokens from the caller"
 CREATE OR REPLACE ACTION action_costing_idos_token($amount NUMERIC(78,0)) PUBLIC {
     $evm_address := get_wallet_with_balance('IDOS');
     if $evm_address is null {
@@ -1618,6 +1623,7 @@ CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS
     RETURN SELECT issuer_fee FROM credentials WHERE id = $credential_id;
 };
 
+-- @generator.description "Capture fee from the credentials"
 CREATE OR REPLACE ACTION capture_fee($credential_id UUID) PRIVATE {
     $evm_address := get_wallet_with_balance('USDC');
     if $evm_address is null {
@@ -1630,10 +1636,12 @@ CREATE OR REPLACE ACTION capture_fee($credential_id UUID) PRIVATE {
     usdc_token_bridge.lock_admin($evm_address, $amount);
 };
 
+-- @generator.description "Capture fee from credentials"
 CREATE OR REPLACE ACTION action_costing_fee($credential_id UUID) PUBLIC {
     capture_fee($credential_id);
 };
 
+-- @generator.description "Request a withdrawal of all tokens from idOS to specified EVM address"
 CREATE OR REPLACE ACTION request_balance_withdrawal($token TEXT, $evm_address_to TEXT) OWNER PUBLIC {
     IF $token == 'IDOS' {
         _, _, _, _, _, $balance, _, _, _ := idos_token_bridge.info();

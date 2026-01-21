@@ -19,7 +19,7 @@ program
   .option('-f, --format <format>', 'Format for the output files (ts, kotlin, python, go)', 'ts')
   .action((options) => {
     console.log(`Generating KWIL-Actions from ${chalk.green(options.input)} in ${chalk.green(options.format)} format`);
-    const ast = parseSchema(options.input);
+    const ast = parseSchema(options.input).filter(x => x.private === false);
 
     if (options.format === 'ts') {
       console.log(chalk.green('Generating TypeScript...'));
