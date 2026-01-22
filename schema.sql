@@ -1603,13 +1603,13 @@ CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
     }
 };
 
-CREATE OR REPLACE ACTION from_human_units($amount NUMERIC(6,2)) PRIVATE VIEW RETURNS(new_amount NUMERIC(78,0)) {
+CREATE OR REPLACE ACTION from_human_units($amount NUMERIC(6,2)) PRIVATE VIEW RETURNS(NUMERIC(78,0)) {
     $new_amount := ($amount * 100::NUMERIC(6,2))::NUMERIC(78,0);
 
     RETURN $new_amount * 10000000000000000::NUMERIC(78,0);
 };
 
-CREATE OR REPLACE ACTION get_allowance() PUBLIC VIEW RETURNS (gas_allowance NUMERIC(78,0)) {
+CREATE OR REPLACE ACTION get_allowance() PUBLIC VIEW RETURNS (NUMERIC(78,0)) {
     RETURN SELECT users.gas_allowance FROM users
         INNER JOIN wallets ON users.id = wallets.user_id
         WHERE (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
