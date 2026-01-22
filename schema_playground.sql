@@ -1616,7 +1616,7 @@ CREATE OR REPLACE ACTION action_costing_idos_token($amount NUMERIC(78,0)) PUBLIC
 CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS (issuer_fee NUMERIC(78,0)) {
     FOR $row IN SELECT issuer_fee FROM credentials WHERE id = $credential_id {
         RETURN $row.issuer_fee;
-    };
+    }
 
     error('credential not found');
 };
