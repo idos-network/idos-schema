@@ -1582,11 +1582,6 @@ CREATE OR REPLACE ACTION update_allowance($amount NUMERIC(78,0)) PRIVATE {
 
 -- @generator.description "Capture gas cost from the caller"
 CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
-    $evm_address := get_wallet_with_balance('IDOS');
-    if $evm_address is null {
-        ERROR('no wallet with balance found');
-    }
-
     $amount := from_human_units($amount_human);
 
     IF has_profile(@caller) {
@@ -1594,10 +1589,14 @@ CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
 
         update_allowance(greatest($allowance - $amount, 0::NUMERIC(78, 0)));
 
-        $amount = $amount - $allowance;
+        $amount = greatest($amount - $allowance, 0::NUMERIC(78,0));
     }
 
     IF $amount > 0::NUMERIC(78,0) {
+        $evm_address := get_wallet_with_balance('IDOS');
+        if $evm_address is null {
+            ERROR('no wallet with balance found');
+        }
         idos_token_bridge.lock_admin($evm_address, $amount);
     }
 };
