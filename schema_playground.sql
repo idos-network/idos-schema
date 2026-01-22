@@ -1614,7 +1614,11 @@ CREATE OR REPLACE ACTION action_costing_idos_token($amount NUMERIC(78,0)) PUBLIC
 };
 
 CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS (issuer_fee NUMERIC(78,0)) {
-    RETURN SELECT issuer_fee FROM credentials WHERE id = $credential_id;
+    FOR $row IN SELECT issuer_fee FROM credentials WHERE id = $credential_id {
+        RETURN $row.issuer_fee;
+    };
+
+    error('credential not found');
 };
 
 CREATE OR REPLACE ACTION capture_fee($credential_id UUID) PRIVATE {
@@ -1624,7 +1628,7 @@ CREATE OR REPLACE ACTION capture_fee($credential_id UUID) PRIVATE {
     }
 
     $fee := get_issuer_fee($credential_id);
-    $amount := $fee * 1.25;
+    $amount := ($fee * 125)::NUMERIC(78,0) / 100::NUMERIC(78,0);
 
     usdc_token_bridge.lock_admin($evm_address, $amount);
 };
