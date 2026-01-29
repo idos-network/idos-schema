@@ -1,5 +1,6 @@
-import { Project, VariableDeclarationKind, Writers } from "ts-morph";
+import { Project, VariableDeclarationKind } from "ts-morph";
 import { KwilAction, Value } from "../parser";
+import { custom } from "zod";
 
 function toCamelCase(snake: string): string {
   return snake.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -38,6 +39,35 @@ export function generateTypescript(methods: KwilAction[]) {
       }
     ]
   })
+
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [
+      {
+        name: "WALLET_TYPES",
+        initializer: `['EVM', 'NEAR', 'XRPL', 'Stellar', 'Pinocchio'] as const`,
+      }
+    ]
+  })
+
+  sourceFile.addTypeAlias({
+    isExported: true,
+    name: "WalletType",
+    type: "(typeof WALLET_TYPES)[number]",
+  });
+
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [
+      {
+        name: "walletTypeSchema",
+        type: "z.ZodType<WalletType>",
+        initializer: `z.enum(WALLET_TYPES)`,
+      }
+    ]
+  });
 
   sourceFile.addTypeAlias({
     isExported: true,
@@ -96,6 +126,10 @@ export function generateTypescript(methods: KwilAction[]) {
     NUMERIC: "number",
   }
 
+  const customZodDbMapping: Record<string, string> = {
+    wallet_type: "walletTypeSchema",
+  }
+
   const zodTypeMapping = {
     TEXT: "ZodString",
     UUID: "ZodUUID",
@@ -104,6 +138,10 @@ export function generateTypescript(methods: KwilAction[]) {
     BOOL: "ZodBoolean",
     INT8: "ZodNumber",
     NUMERIC: "ZodNumber",
+  }
+
+  const customZodTypeMapping: Record<string, string> = {
+    wallet_type: "z.ZodType<WalletType>",
   }
 
   function generateZodType(name: string, args: Value[], {
@@ -128,7 +166,11 @@ export function generateTypescript(methods: KwilAction[]) {
                   writer.write("z.ZodNullable<");
                 }
 
-                writer.write(`z.${zodTypeMapping[arg.type]} `);
+                if (customZodTypeMapping[arg.name]) {
+                  writer.write(`${customZodTypeMapping[arg.name]} `);
+                } else {
+                  writer.write(`z.${zodTypeMapping[arg.type]} `);
+                }
 
                 if (optionals.includes(arg.name)) {
                   writer.write(">");
@@ -144,7 +186,13 @@ export function generateTypescript(methods: KwilAction[]) {
             writer.write(`z.object(`);
             writer.inlineBlock(() => {
               args.forEach(arg => {
-                writer.write(`${arg.name}: z.${zodDbMapping[arg.type]}()`);
+                let type = `z.${zodDbMapping[arg.type]}()`;
+
+                if (customZodDbMapping[arg.name]) {
+                  type = customZodDbMapping[arg.name];
+                }
+
+                writer.write(`${arg.name}: ${type}`);
                 writer.conditionalWrite(optionals.includes(arg.name), () => ".nullable()");
                 writer.write(",");
                 writer.newLine();
