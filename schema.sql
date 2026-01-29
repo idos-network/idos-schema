@@ -183,6 +183,29 @@ CREATE OR REPLACE ACTION get_inserter_or_null() PRIVATE VIEW RETURNS (name TEXT)
     return null;
 };
 
+-- HELPERS
+CREATE OR REPLACE ACTION wallet_type_requires_public_key($wallet_type TEXT) PRIVATE VIEW RETURNS (requires BOOL) {
+    return $wallet_type IN ('NEAR', 'XRPL', 'Stellar', 'Pinocchio');
+};
+
+CREATE OR REPLACE ACTION wallet_type_requires_address($wallet_type TEXT) PRIVATE VIEW RETURNS (uses BOOL) {
+    return $wallet_type IN ('EVM', 'XRPL', 'Stellar');
+};
+
+CREATE OR REPLACE ACTION get_caller_user_id() PRIVATE VIEW RETURNS (user_id UUID) {
+  return get_user_id(@caller)
+};
+
+CREATE OR REPLACE ACTION get_user_id($adddress_or_pub_key TEXT) PRIVATE VIEW RETURNS (user_id UUID) {
+    for $row in SELECT DISTINCT user_id FROM wallets 
+        WHERE (wallet_type = 'EVM' AND address = $adddress_or_pub_key COLLATE NOCASE)
+            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $adddress_or_pub_key)
+            OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = $adddress_or_pub_key) {
+        return $row.user_id;
+    }
+
+    return null;
+}
 
 -- USER ACTIONS
 
@@ -201,10 +224,8 @@ CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_en
 };
 
 CREATE OR REPLACE ACTION get_user() PUBLIC VIEW RETURNS (id UUID, recipient_encryption_public_key TEXT, encryption_password_store TEXT) {
-    for $row in SELECT id, recipient_encryption_public_key, encryption_password_store FROM users
-        WHERE id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)) {
-        return $row.id, $row.recipient_encryption_public_key, $row.encryption_password_store;
+    for $row in SELECT id, recipient_encryption_public_key, encryption_password_store FROM users WHERE id = get_caller_user_id() {
+      return $row.id, $row.recipient_encryption_public_key, $row.encryption_password_store;
     }
 };
 
@@ -241,13 +262,13 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
         error('wallet is invalid');
     }
 
-    if $wallet_type = 'NEAR' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' OR $wallet_type = 'Pinocchio' {
-        for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type IN ('NEAR', 'Stellar', 'XRPL', 'Pinocchio') AND public_key = $public_key {
+    if wallet_type_requires_public_key($wallet_type) {
+        for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type_requires_public_key(wallet_type) AND public_key = $public_key {
             error('wallet public key already exists in idos');
         }
     }
 
-    if $wallet_type = 'EVM' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' {
+    if wallet_type_requires_address($wallet_type) {
         for $row_address in SELECT 1 FROM wallets WHERE id != $id AND
             ((wallet_type = 'EVM' AND address = $address COLLATE NOCASE) OR (wallet_type IN ('XRPL', 'Stellar') AND address = $address)) {
                 error('wallet address already exists in idos');
@@ -268,17 +289,18 @@ CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $
     if !idos.is_wallet_valid($address, $public_key, $wallet_type, $message, $signature) {
         error('wallet is invalid');
     }
-    if $wallet_type = 'NEAR' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' OR $wallet_type = 'Pinocchio' {
+
+    if wallet_type_requires_public_key($wallet_type) {
         if $public_key is null {
             error('wallet require a public_key to be given');
         }
 
-        for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type IN ('NEAR', 'Stellar', 'XRPL', 'Pinocchio') AND public_key = $public_key {
+        for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type_requires_public_key(wallet_type) AND public_key = $public_key {
             error('wallet public key already exists in idos');
         }
     }
 
-    if $wallet_type = 'EVM' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' {
+    if wallet_type_requires_address($wallet_type) {
         for $row_address in SELECT 1 FROM wallets WHERE id != $id AND
             ((wallet_type = 'EVM' AND address = $address COLLATE NOCASE) OR (wallet_type IN ('XRPL', 'Stellar') AND address = $address)) {
                 error('wallet address already exists in idos');
@@ -288,9 +310,7 @@ CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $
     INSERT INTO wallets (id, user_id, address, public_key, wallet_type, message, signature)
     VALUES (
         $id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)
-        ),
+        get_caller_user_id(),
         $address,
         CASE
             WHEN $public_key = '' THEN NULL
@@ -341,10 +361,7 @@ CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
         error('You can not delete a wallet you are connected with. To delete this wallet you have to connect other wallet.');
     }
 
-    DELETE FROM wallets
-    WHERE id=$id AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-        OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)
-    );
+    DELETE FROM wallets WHERE id=$id AND user_id=get_caller_user_id();
 };
 
 
@@ -411,9 +428,7 @@ CREATE OR REPLACE ACTION add_credential (
     INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key)
     VALUES (
         $id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller)  OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)
-        ),
+        get_caller_user_id(),
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
         $public_notes,
         $content,
@@ -493,8 +508,7 @@ CREATE OR REPLACE ACTION edit_credential (
     for $row2 in SELECT 1 from credentials AS c
                     INNER JOIN shared_credentials AS sc on c.id = sc.copy_id
                     WHERE c.id = $id
-                    AND c.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-                        OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)) {
+                    AND c.user_id= get_caller_user_id() {
         error('can not edit shared credential');
     }
 
@@ -512,9 +526,7 @@ CREATE OR REPLACE ACTION edit_credential (
         encryptor_public_key=$encryptor_public_key,
         issuer_auth_public_key=$issuer_auth_public_key
     WHERE id=$id
-    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-        OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)
-    );
+    AND user_id=get_caller_user_id();
 };
 
 -- Be aware that @caller here is ed25519 public key, hex encoded.
@@ -536,12 +548,8 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
     if has_locked_access_grants($id) {
         error('there are locked access grants for this credential');
     }
-    DELETE FROM credentials
-    WHERE id=$id
-    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-        OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)
-    );
 
+    DELETE FROM credentials WHERE id=$id AND user_id=get_caller_user_id();
     DELETE FROM access_grants WHERE data_id = $id;
 };
 
@@ -755,8 +763,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $original_credential_id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $dwg_owner) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = $dwg_owner)),
+        get_user_id($dwg_owner),
         CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
         $original_public_notes,
         $original_content,
@@ -769,8 +776,7 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
     VALUES (
         $copy_credential_id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $dwg_owner) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = $dwg_owner)),
+        get_user_id($dwg_owner),
         NULL,
         '',
         $copy_content,
@@ -830,12 +836,7 @@ CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS tab
 ) {
     return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.content, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter
         FROM credentials AS c
-        INNER JOIN wallets ON c.user_id = wallets.user_id
-        WHERE c.id = $id
-        AND (
-            (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
-                OR (wallets.wallet_type IN ('XRPL', 'Stellar') AND wallets.address = @caller) OR (wallets.wallet_type IN ('NEAR', 'Pinocchio') AND wallets.public_key = @caller)
-        );
+        WHERE c.id = $id AND c.user_id = get_caller_user_id()
 };
 
 -- As a credential copy doesn't contain PUBLIC notes, we return respective original credential PUBLIC notes
@@ -879,10 +880,7 @@ CREATE OR REPLACE ACTION get_sibling_credential_id ($content_hash TEXT) PUBLIC V
 };
 
 CREATE OR REPLACE ACTION credential_belongs_to_caller($id UUID) PRIVATE VIEW RETURNS (belongs BOOL) {
-    for $row in SELECT 1 from credentials
-        WHERE id = $id
-        AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)) {
+    for $row in SELECT 1 from credentials WHERE id = $id AND user_id = get_caller_user_id() {
         return true;
     }
 
@@ -911,9 +909,7 @@ CREATE OR REPLACE ACTION add_attribute($id UUID, $attribute_key TEXT, $value TEX
     INSERT INTO user_attributes (id, user_id, attribute_key, value)
     VALUES (
         $id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)
-        ),
+        get_caller_user_id(),
         $attribute_key,
         $value
     );
@@ -929,14 +925,7 @@ CREATE OR REPLACE ACTION get_attributes() PUBLIC VIEW returns table (
     return SELECT DISTINCT ha.id, ha.user_id, ha.attribute_key, ha.value, sha.original_id AS original_id
         FROM user_attributes AS ha
         LEFT JOIN shared_user_attributes AS sha ON ha.id = sha.copy_id
-        INNER JOIN wallets ON ha.user_id = wallets.user_id
-        WHERE (
-            wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE
-        ) OR (
-            wallets.wallet_type IN ('XRPL', 'Stellar') AND wallets.address = @caller
-        ) OR (
-            wallets.wallet_type IN ('NEAR', 'Pinocchio') AND wallets.public_key = @caller
-        );
+        WHERE ha.user_id = get_caller_user_id();
 };
 
 -- @generator.description "Edit an existing attribute"
@@ -944,26 +933,21 @@ CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TE
     for $row in SELECT 1 FROM user_attributes AS ha
                 INNER JOIN shared_user_attributes AS sha on ha.id = sha.copy_id
                 WHERE ha.id = $id
-                AND ha.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-                    OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)) {
+                AND ha.user_id=get_caller_user_id() {
         error('Can not edit shared attribute');
     }
 
     UPDATE user_attributes
     SET attribute_key=$attribute_key, value=$value
     WHERE id=$id
-    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-        OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)
-    );
+    AND user_id=get_caller_user_id();
 };
 
 -- @generator.description "Remove an existing attribute"
 CREATE OR REPLACE ACTION remove_attribute($id UUID) PUBLIC {
     DELETE FROM user_attributes
     WHERE id=$id
-    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-        OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type = 'NEAR' AND public_key = @caller)
-    );
+    AND user_id = get_caller_user_id();
 };
 
 -- @generator.description "Share an attribute"
@@ -971,9 +955,7 @@ CREATE OR REPLACE ACTION share_attribute($id UUID, $original_attribute_id UUID, 
     INSERT INTO user_attributes (id, user_id, attribute_key, value)
     VALUES (
         $id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type = 'NEAR' AND public_key = @caller)
-        ),
+        get_caller_user_id(),
         $attribute_key,
         $value
     );
@@ -1019,9 +1001,7 @@ CREATE OR REPLACE ACTION dwg_message(
 -- @generator.description "Revoke an Access Grant from idOS"
 CREATE OR REPLACE ACTION revoke_access_grant ($id UUID) PUBLIC {
     $ag_exist := false;
-    for $row in SELECT 1 FROM access_grants WHERE id = $id
-        AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)) {
+    for $row in SELECT 1 FROM access_grants WHERE id = $id AND ag_owner_user_id = get_caller_user_id() {
         $ag_exist := true;
     }
 
@@ -1031,15 +1011,13 @@ CREATE OR REPLACE ACTION revoke_access_grant ($id UUID) PUBLIC {
 
     for $row2 in SELECT 1 FROM access_grants WHERE id = $id
         AND locked_until >= @block_timestamp
-        AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)) {
+        AND ag_owner_user_id = get_caller_user_id() {
         error('the grant is locked');
     }
 
     DELETE FROM access_grants
     WHERE id = $id
-    AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-        OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller));
+    AND ag_owner_user_id = get_caller_user_id();
 };
 
 -- @generator.returnOptional "content_hash"
@@ -1053,9 +1031,9 @@ CREATE OR REPLACE ACTION get_access_grants_owned () PUBLIC VIEW RETURNS table (
     inserter_type TEXT,
     inserter_id TEXT
 ) {
-    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id FROM access_grants
-        WHERE ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller));
+    return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id
+      FROM access_grants
+      WHERE ag_owner_user_id = get_caller_user_id();
 };
 
 -- As arguments can be undefined (user can not send them at all), we have to have default values: page=1, size=20
@@ -1121,8 +1099,7 @@ CREATE OR REPLACE ACTION get_access_grants_granted_count ($user_id UUID) PUBLIC 
 CREATE OR REPLACE ACTION has_locked_access_grants($id UUID) PUBLIC VIEW RETURNS (has BOOL) {
     for $ag_row in SELECT 1 FROM access_grants
             WHERE data_id = $id
-            AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-                OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller))
+            AND ag_owner_user_id = get_caller_user_id()
             AND locked_until >= @block_timestamp LIMIT 1 {
         return true;
     }
@@ -1159,6 +1136,8 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $dag_owner_found bool := false;
     $dag_owner_wallet_type string := '';
     $dag_owner_public_key string := '';
+
+    -- We can't replace this by get_user_id($dag_owner_wallet_identifier) because user can have more wallets and we are looking for a concrete one here
     for $wallet in SELECT wallet_type, public_key FROM wallets WHERE (wallet_type = 'EVM' AND address = $dag_owner_wallet_identifier COLLATE NOCASE)
             OR (wallet_type IN ('XRPL', 'Stellar') AND address = $dag_owner_wallet_identifier)
             OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = $dag_owner_wallet_identifier) {
@@ -1188,11 +1167,8 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
 
     $data_id_belongs_to_owner bool := false;
     for $row in SELECT 1 from credentials
-            INNER JOIN wallets ON credentials.user_id = wallets.user_id
             WHERE credentials.id = $dag_data_id
-            AND ((wallets.wallet_type = 'EVM' AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE)
-                OR (wallets.wallet_type IN ('XRPL', 'Stellar') AND wallets.address = $dag_owner_wallet_identifier)
-                OR (wallets.wallet_type IN ('NEAR', 'Pinocchio') AND wallets.public_key = $dag_owner_wallet_identifier)) {
+            AND credentials.user_id = get_user_id($dag_owner_wallet_identifier) {
         $data_id_belongs_to_owner := true;
         break;
     }
@@ -1438,21 +1414,13 @@ CREATE OR REPLACE ACTION from_human_units($amount NUMERIC(6,2)) PRIVATE VIEW RET
 
 -- Pinocchio should not be able to call this
 CREATE OR REPLACE ACTION get_allowance() PUBLIC VIEW RETURNS (gas_allowance NUMERIC(78,0)) {
-    RETURN SELECT users.gas_allowance FROM users
-        INNER JOIN wallets ON users.id = wallets.user_id
-        WHERE (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
-            OR (wallets.wallet_type IN ('XRPL', 'Stellar') AND wallets.address = @caller)
-            OR (wallets.wallet_type IN ('NEAR') AND wallets.public_key = @caller);
+    RETURN SELECT users.gas_allowance FROM users WHERE users.id = get_caller_user_id();
 };
 
 -- Pinocchio should not be able to call this
 -- @generator.description "Update gas allowance for the caller"
 CREATE OR REPLACE ACTION update_allowance($amount NUMERIC(78,0)) PRIVATE {
-    UPDATE users SET gas_allowance=$amount FROM wallets
-        WHERE users.id = wallets.user_id AND
-            ((wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
-            OR (wallets.wallet_type IN ('XRPL', 'Stellar') AND wallets.address = @caller)
-            OR (wallets.wallet_type IN ('NEAR') AND wallets.public_key = @caller));
+    UPDATE users SET gas_allowance=$amount FROM wallets WHERE users.id = get_caller_user_id();
 };
 
 -- @generator.description "Capture gas cost from the caller"
