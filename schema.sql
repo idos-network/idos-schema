@@ -196,11 +196,11 @@ CREATE OR REPLACE ACTION get_caller_user_id() PRIVATE VIEW RETURNS (user_id UUID
   return get_user_id(@caller)
 };
 
-CREATE OR REPLACE ACTION get_user_id($adddress_or_pub_key TEXT) PRIVATE VIEW RETURNS (user_id UUID) {
+CREATE OR REPLACE ACTION get_user_id($address_or_pub_key TEXT) PRIVATE VIEW RETURNS (user_id UUID) {
     for $row in SELECT DISTINCT user_id FROM wallets 
-        WHERE (wallet_type = 'EVM' AND address = $adddress_or_pub_key COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $adddress_or_pub_key)
-            OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = $adddress_or_pub_key) {
+        WHERE (wallet_type = 'EVM' AND address = $address_or_pub_key COLLATE NOCASE)
+            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $address_or_pub_key)
+            OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = $address_or_pub_key) {
         return $row.user_id;
     }
 
