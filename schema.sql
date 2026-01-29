@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- for NEAR type, address is like alex.testnet, and public key is base58 in format ed25519:6YMr5ggaCe9AtiQNeh2spn8iff72QVHyaXvu4aKsyWuB
 -- for XRPL type, address is case sensitive like rHb9CJAWyB4rj91VRWn96Dk6kG4b4dtyTh, and public key is 32-byte Ed25519 public key in hex format, prefixed by `ED`
 -- for Stellar type, address is case sensitive like GCFXQ3PM5Y6V4KXQ5Y4L, and public key is 32 byte Ed25519 public key in StrKey format, starting with `G`
--- for Pinocchio type, address is null, and public key is ed25519 public key in hex format
+-- for Pinocchio type, address and public key are the same, it's the ed25519 public key in hex format
 
 CREATE TABLE IF NOT EXISTS wallets (
     id UUID PRIMARY KEY,
@@ -239,7 +239,7 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
 ) PUBLIC {
     capture_gas(0::NUMERIC(6,2));
 
-    if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' {
+    if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'Pinocchio' {
         error('unsupported wallet type');
     }
 
@@ -1007,7 +1007,7 @@ CREATE OR REPLACE ACTION remove_attribute($id UUID) PUBLIC {
     DELETE FROM user_attributes
     WHERE id=$id
     AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-        OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type = 'NEAR' AND public_key = @caller)
+        OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)
     );
 };
 
@@ -1019,7 +1019,7 @@ CREATE OR REPLACE ACTION share_attribute($id UUID, $original_attribute_id UUID, 
     VALUES (
         $id,
         (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type = 'NEAR' AND public_key = @caller)
+            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'Pinocchio') AND public_key = @caller)
         ),
         $attribute_key,
         $value
@@ -1494,7 +1494,7 @@ CREATE OR REPLACE ACTION get_allowance() PUBLIC VIEW RETURNS (gas_allowance NUME
         INNER JOIN wallets ON users.id = wallets.user_id
         WHERE (wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
             OR (wallets.wallet_type IN ('XRPL', 'Stellar') AND wallets.address = @caller)
-            OR (wallets.wallet_type IN ('NEAR') AND wallets.public_key = @caller);
+            OR (wallets.wallet_type IN ('NEAR', 'Pinocchio') AND wallets.public_key = @caller);
 };
 
 -- Pinocchio should not be able to call this
@@ -1504,7 +1504,7 @@ CREATE OR REPLACE ACTION update_allowance($amount NUMERIC(78,0)) PRIVATE {
         WHERE users.id = wallets.user_id AND
             ((wallets.wallet_type = 'EVM' AND wallets.address = @caller COLLATE NOCASE)
             OR (wallets.wallet_type IN ('XRPL', 'Stellar') AND wallets.address = @caller)
-            OR (wallets.wallet_type IN ('NEAR') AND wallets.public_key = @caller));
+            OR (wallets.wallet_type IN ('NEAR', 'Pinocchio') AND wallets.public_key = @caller));
 };
 
 -- @generator.description "Capture gas cost from the caller"
