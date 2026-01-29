@@ -1696,7 +1696,7 @@ CREATE OR REPLACE ACTION request_balance_withdrawal($token TEXT, $evm_address_to
         _, _, _, _, _, $balance, _, _, _ := idos_token_bridge.info();
         idos_token_bridge.issue($evm_address_to, $balance);
     } ELSE IF $token == 'USDC' {
-                _, _, _, _, _, $balance, _, _, _ := usdc_token_bridge.info();
+        _, _, _, _, _, $balance, _, _, _ := usdc_token_bridge.info();
         usdc_token_bridge.issue($evm_address_to, $balance);
     } ELSE {
         ERROR('invalid token');
