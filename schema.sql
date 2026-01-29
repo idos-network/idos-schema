@@ -262,8 +262,17 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
 };
 
 -- @generator.description "Add a wallet to idOS"
-CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $message TEXT, $signature TEXT) PUBLIC {
-    $wallet_type := idos.determine_wallet_type($address);
+ÍCREATE OR REPLACE ACTION add_wallet(
+    $id UUID,
+    $address TEXT,
+    $public_key TEXT,
+    $wallet_type TEXT,
+    $message TEXT,
+    $signature TEXT
+) PUBLIC {
+    if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'Pinocchio' {
+        error('unsupported wallet type');
+    }
 
     if !idos.is_wallet_valid($address, $public_key, $wallet_type, $message, $signature) {
         error('wallet is invalid');
@@ -1379,10 +1388,9 @@ CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW R
 CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURNS (wallet_address TEXT) {
     $evm_addresses TEXT[];
     IF !has_profile(@caller) {
-        $wallet_type := idos.determine_wallet_type(@caller);
-        if $wallet_type == 'EVM' {
-            $evm_addresses = array_append($evm_addresses, @caller);
-        }
+        -- even if the @caller is not EVM address, there is no harm to try to get the balance, it will return nothing
+        -- because bridge.balance can only have records with EVM addresses (it is filled from EVM-compatible contract events)
+        $evm_addresses = array_append($evm_addresses, @caller);
     } ELSE {
         FOR $row IN get_wallets() {
             IF $row.wallet_type == 'EVM' {
