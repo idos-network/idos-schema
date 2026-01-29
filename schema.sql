@@ -267,6 +267,7 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     SET user_id=$user_id, address=$address, public_key=$public_key, wallet_type=$wallet_type, message=$message, signature=$signature, inserter=$inserter;
 };
 
+-- @generator.paramOptional "public_key"
 -- @generator.description "Add a wallet to idOS"
 CREATE OR REPLACE ACTION add_wallet(
     $id UUID,
@@ -285,6 +286,7 @@ CREATE OR REPLACE ACTION add_wallet(
     if !idos.is_wallet_valid($address, $public_key, $wallet_type, $message, $signature) {
         error('wallet is invalid');
     }
+
     if $wallet_type = 'NEAR' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' OR $wallet_type = 'Pinocchio' {
         if $public_key is null {
             error('wallet require a public_key to be given');
