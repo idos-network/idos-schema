@@ -214,11 +214,6 @@ export function generateTypescript(methods: KwilAction[]) {
       functionDeclaration.addJsDoc(method.comments.join("\n"));
     }
 
-    if (method.name == "action_costing_gas") {
-      console.log("Generating action_costing_gas with description:", method.generatorComments.description);
-    }
-
-
     functionDeclaration.setBodyText(writer => {
       let hasReturn = method.returns.length > 0;
       let returnStatement = hasReturn ? "return" : "";
