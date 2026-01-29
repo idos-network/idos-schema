@@ -239,7 +239,7 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
 ) PUBLIC {
     capture_gas(0::NUMERIC(6,2));
 
-    if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' {
+    if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'Pinocchio' {
         error('unsupported wallet type');
     }
 
