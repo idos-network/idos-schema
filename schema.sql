@@ -186,6 +186,8 @@ CREATE OR REPLACE ACTION get_inserter_or_null() PRIVATE VIEW RETURNS (name TEXT)
 
 -- @generator.description "Add a user to idOS"
 CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     $inserter := get_inserter();
     INSERT INTO users (id, recipient_encryption_public_key, encryption_password_store, inserter)
         VALUES ($id, $recipient_encryption_public_key, $encryption_password_store, $inserter);
@@ -193,6 +195,8 @@ CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_pu
 
 -- @generator.description "Update user's encryption key and password store in idOS as inserter (profile creator)"
 CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     get_inserter();
     UPDATE users SET recipient_encryption_public_key=$recipient_encryption_public_key, encryption_password_store=$encryption_password_store
         WHERE id = $id;
@@ -231,6 +235,8 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $message TEXT,
     $signature TEXT
 ) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' {
         error('unsupported wallet type');
     }
@@ -261,6 +267,8 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
 
 -- @generator.description "Add a wallet to idOS"
 CREATE OR REPLACE ACTION add_wallet($id UUID, $address TEXT, $public_key TEXT, $message TEXT, $signature TEXT) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     $wallet_type := idos.determine_wallet_type($address);
 
     if !idos.is_wallet_valid($address, $public_key, $wallet_type, $message, $signature) {
@@ -324,6 +332,8 @@ CREATE OR REPLACE ACTION get_wallets() PUBLIC VIEW RETURNS table (
 
 -- @generator.description "Remove a wallet from idOS"
 CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     for $row in SELECT id FROM wallets
         WHERE id = $id
         AND ((wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
@@ -359,6 +369,8 @@ CREATE OR REPLACE ACTION upsert_credential_as_inserter (
     $public_notes_signature TEXT,
     $broader_signature TEXT
 ) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     $inserter := get_inserter(); -- throw an error if not authorized
 
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
@@ -399,6 +411,8 @@ CREATE OR REPLACE ACTION add_credential (
     $public_notes_signature TEXT,
     $broader_signature TEXT
 ) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
     if !$result {
         error('signature is wrong');
@@ -482,6 +496,8 @@ CREATE OR REPLACE ACTION edit_credential (
     $encryptor_public_key TEXT,
     $issuer_auth_public_key TEXT
 ) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     -- we forbid to edit a copy
     -- only copies can have AGs, so data_id in AGs is id of a copy
     for $row1 in SELECT 1 from access_grants WHERE data_id = $id {
@@ -520,6 +536,8 @@ CREATE OR REPLACE ACTION edit_credential (
 -- This action can't be called by kwil-cli (as kwil-cli uses secp256k1 only)
 -- @generator.description "Edit public notes in a credential as issuer"
 CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $public_notes TEXT) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     UPDATE credentials SET public_notes = $public_notes
     WHERE issuer_auth_public_key = @caller
         AND verifiable_credential_id = $public_notes_id;
@@ -527,6 +545,8 @@ CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $pub
 
 -- @generator.description "Remove a credential from your idOS profile"
 CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     if !credential_belongs_to_caller($id) {
         error('the credential does not belong to the caller');
     }
@@ -545,6 +565,8 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
 
 -- @generator.description "Rescind a shared credential as a grantee"
 CREATE OR REPLACE ACTION rescind_shared_credential($credential_id UUID) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     $credential_found := false;
     for $row in SELECT 1 FROM credentials AS c
         INNER JOIN access_grants AS ag ON c.id = ag.data_id
@@ -576,6 +598,8 @@ CREATE OR REPLACE ACTION share_credential (
     $grantee_wallet_identifier TEXT,
     $locked_until INT8
 ) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     if !credential_belongs_to_caller($original_credential_id) {
         error('original credential does not belong to the caller');
     }
@@ -618,6 +642,8 @@ CREATE OR REPLACE ACTION create_credential_copy(
     $encryptor_public_key TEXT,
     $issuer_auth_public_key TEXT
 ) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     if !credential_belongs_to_caller($original_credential_id) {
         error('original credential does not belong to the caller');
     }
@@ -661,6 +687,8 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $dwg_not_before TEXT,
     $dwg_not_after TEXT,
     $dwg_signature TEXT) PUBLIC {
+
+    capture_gas(0::NUMERIC(6,2));
 
     -- Check the content creator (encryptor) of credentials is the issuer that user delegated to issue the credentials
     $the_same_issuer := false;
@@ -899,6 +927,8 @@ CREATE OR REPLACE ACTION credential_exist($id UUID) PRIVATE VIEW RETURNS (creden
 
 -- @generator.description "Add a new attribute as inserter"
 CREATE OR REPLACE ACTION add_attribute_as_inserter($id UUID, $user_id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     $inserter := get_inserter();
     INSERT INTO user_attributes (id, user_id, attribute_key, value, inserter)
     VALUES ($id, $user_id, $attribute_key, $value, $inserter);
@@ -906,6 +936,8 @@ CREATE OR REPLACE ACTION add_attribute_as_inserter($id UUID, $user_id UUID, $att
 
 -- @generator.description  "Create a new attribute in your idOS profile"
 CREATE OR REPLACE ACTION add_attribute($id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     INSERT INTO user_attributes (id, user_id, attribute_key, value)
     VALUES (
         $id,
@@ -939,6 +971,8 @@ CREATE OR REPLACE ACTION get_attributes() PUBLIC VIEW returns table (
 
 -- @generator.description "Edit an existing attribute"
 CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     for $row in SELECT 1 FROM user_attributes AS ha
                 INNER JOIN shared_user_attributes AS sha on ha.id = sha.copy_id
                 WHERE ha.id = $id
@@ -957,6 +991,8 @@ CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TE
 
 -- @generator.description "Remove an existing attribute"
 CREATE OR REPLACE ACTION remove_attribute($id UUID) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     DELETE FROM user_attributes
     WHERE id=$id
     AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
@@ -966,6 +1002,8 @@ CREATE OR REPLACE ACTION remove_attribute($id UUID) PUBLIC {
 
 -- @generator.description "Share an attribute"
 CREATE OR REPLACE ACTION share_attribute($id UUID, $original_attribute_id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     INSERT INTO user_attributes (id, user_id, attribute_key, value)
     VALUES (
         $id,
@@ -1016,6 +1054,8 @@ CREATE OR REPLACE ACTION dwg_message(
 
 -- @generator.description "Revoke an Access Grant from idOS"
 CREATE OR REPLACE ACTION revoke_access_grant ($id UUID) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     $ag_exist := false;
     for $row in SELECT 1 FROM access_grants WHERE id = $id
         AND ag_owner_user_id = (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
@@ -1153,6 +1193,8 @@ CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
     $dag_content_hash TEXT,
     $dag_signature TEXT
 ) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     -- Get the wallet type and public key for XRPL/NEAR wallets from database
     $dag_owner_found bool := false;
     $dag_owner_wallet_type string := '';
@@ -1409,6 +1451,8 @@ CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURN
 
 -- @generator.description "Request a withdrawal of all tokens from idOS to user's EVM wallet"
 CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
+    capture_gas(0::NUMERIC(6,2));
+
     $evm_address := get_wallet_with_balance($token);
     if $evm_address is null {
         ERROR('no wallet with balance found');
@@ -1521,7 +1565,7 @@ CREATE OR REPLACE ACTION request_balance_withdrawal($token TEXT, $evm_address_to
         _, _, _, _, _, $balance, _, _, _ := idos_token_bridge.info();
         idos_token_bridge.issue($evm_address_to, $balance);
     } ELSE IF $token == 'USDC' {
-                _, _, _, _, _, $balance, _, _, _ := usdc_token_bridge.info();
+        _, _, _, _, _, $balance, _, _, _ := usdc_token_bridge.info();
         usdc_token_bridge.issue($evm_address_to, $balance);
     } ELSE {
         ERROR('invalid token');
