@@ -185,15 +185,15 @@ CREATE OR REPLACE ACTION get_inserter_or_null() PRIVATE VIEW RETURNS (name TEXT)
 
 -- HELPERS
 CREATE OR REPLACE ACTION wallet_type_requires_public_key($wallet_type TEXT) PRIVATE VIEW RETURNS (requires BOOL) {
-    return $wallet_type IN ('NEAR', 'XRPL', 'Stellar', 'Pinocchio');
+    return $wallet_type = 'NEAR' OR $wallet_type ='XRPL' OR $wallet_type = 'Stellar' OR $wallet_type = 'Pinocchio';
 };
 
 CREATE OR REPLACE ACTION wallet_type_requires_address($wallet_type TEXT) PRIVATE VIEW RETURNS (uses BOOL) {
-    return $wallet_type IN ('EVM', 'XRPL', 'Stellar');
+    return $wallet_type = 'EVM' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar';
 };
 
 CREATE OR REPLACE ACTION get_caller_user_id() PRIVATE VIEW RETURNS (user_id UUID) {
-  return get_user_id(@caller)
+  return get_user_id(@caller);
 };
 
 CREATE OR REPLACE ACTION get_user_id($address_or_pub_key TEXT) PRIVATE VIEW RETURNS (user_id UUID) {
@@ -205,7 +205,7 @@ CREATE OR REPLACE ACTION get_user_id($address_or_pub_key TEXT) PRIVATE VIEW RETU
     }
 
     return null;
-}
+};
 
 -- USER ACTIONS
 
@@ -836,7 +836,7 @@ CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS tab
 ) {
     return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.content, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter
         FROM credentials AS c
-        WHERE c.id = $id AND c.user_id = get_caller_user_id()
+        WHERE c.id = $id AND c.user_id = get_caller_user_id();
 };
 
 -- As a credential copy doesn't contain PUBLIC notes, we return respective original credential PUBLIC notes
