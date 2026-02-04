@@ -46,7 +46,7 @@ export function generateTypescript(methods: KwilAction[]) {
     declarations: [
       {
         name: "WALLET_TYPES",
-        initializer: `['EVM', 'NEAR', 'XRPL', 'Stellar', 'Pinocchio'] as const`,
+        initializer: `['EVM', 'NEAR', 'XRPL', 'Stellar', 'FaceSign'] as const`,
       }
     ]
   })
