@@ -227,6 +227,7 @@ CREATE OR REPLACE ACTION get_user_as_inserter($id UUID) PUBLIC VIEW RETURNS (
 
 -- WALLET ACTIONS
 
+-- @generator.paramOptional "public_key"
 -- @generator.description "Add a wallet to idOS by inserter (profile creator)"
 CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $id UUID,
@@ -248,6 +249,10 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     }
 
     if $wallet_type = 'NEAR' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' OR $wallet_type = 'FaceSign' {
+        if $public_key is null {
+            error('wallet require a public_key to be given');
+        }
+
         for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type IN ('NEAR', 'Stellar', 'XRPL', 'FaceSign') AND public_key = $public_key {
             error('wallet public key already exists in idos');
         }
