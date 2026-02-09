@@ -1,6 +1,5 @@
 import { Project, VariableDeclarationKind } from "ts-morph";
 import { KwilAction, Value } from "../parser";
-import { custom } from "zod";
 
 function toCamelCase(snake: string): string {
   return snake.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -22,7 +21,7 @@ export function generateTypescript(methods: KwilAction[]) {
       defaultImport: "* as z",
     },
     {
-      moduleSpecifier: "../kwil-infra",
+      moduleSpecifier: "../",
       isTypeOnly: true,
       namedImports: ["KwilActionClient"],
     },
@@ -65,6 +64,35 @@ export function generateTypescript(methods: KwilAction[]) {
         name: "walletTypeSchema",
         type: "z.ZodType<WalletType>",
         initializer: `z.enum(WALLET_TYPES)`,
+      }
+    ]
+  });
+
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [
+      {
+        name: "ENCRYPTION_PASSWORD_STORES",
+        initializer: `['user', 'mpc'] as const`,
+      }
+    ]
+  })
+
+  sourceFile.addTypeAlias({
+    isExported: true,
+    name: "EncryptionPasswordStore",
+    type: "(typeof ENCRYPTION_PASSWORD_STORES)[number]",
+  });
+
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [
+      {
+        name: "encryptionPasswordStoreSchema",
+        type: "z.ZodType<EncryptionPasswordStore>",
+        initializer: `z.enum(ENCRYPTION_PASSWORD_STORES)`,
       }
     ]
   });
@@ -128,6 +156,7 @@ export function generateTypescript(methods: KwilAction[]) {
 
   const customZodDbMapping: Record<string, string> = {
     wallet_type: "walletTypeSchema",
+    encryption_password_store: "encryptionPasswordStoreSchema",
   }
 
   const zodTypeMapping = {
@@ -142,6 +171,7 @@ export function generateTypescript(methods: KwilAction[]) {
 
   const customZodTypeMapping: Record<string, string> = {
     wallet_type: "z.ZodType<WalletType>",
+    encryption_password_store: "z.ZodType<EncryptionPasswordStore>",
   }
 
   function generateZodType(name: string, args: Value[], {
