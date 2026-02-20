@@ -1040,6 +1040,7 @@ CREATE OR REPLACE ACTION share_attribute($id UUID, $original_attribute_id UUID, 
 
 -- WRITE GRANTS ACTIONS
 
+-- @generator.notAuthorized
 CREATE OR REPLACE ACTION dwg_message(
     $owner_wallet_identifier TEXT,
     $grantee_wallet_identifier TEXT,
@@ -1187,6 +1188,7 @@ CREATE OR REPLACE ACTION has_locked_access_grants($id UUID) PUBLIC VIEW RETURNS 
     return false;
 };
 
+-- @generator.notAuthorized
 CREATE OR REPLACE ACTION dag_message(
     $dag_owner_wallet_identifier TEXT,
     $dag_grantee_wallet_identifier TEXT,
