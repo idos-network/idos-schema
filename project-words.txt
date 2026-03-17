@@ -9,6 +9,7 @@ nearley
 nearleyc
 nocase
 permissioned
+passporting
 secp256k1
 timelock
 xrpl
