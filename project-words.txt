@@ -8,7 +8,6 @@ mycli
 nearley
 nearleyc
 nocase
-passporting
 permissioned
 secp256k1
 timelock
