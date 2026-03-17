@@ -624,40 +624,7 @@ CREATE OR REPLACE ACTION share_credential (
     );
 };
 
--- Credential copy actions
-
--- @generator.description "Share a credential without AG (access grant)"
-CREATE OR REPLACE ACTION create_credential_copy(
-    $id UUID,
-    $original_credential_id UUID,
-    $public_notes TEXT,
-    $public_notes_signature TEXT,
-    $broader_signature TEXT,
-    $content TEXT,
-    $encryptor_public_key TEXT,
-    $issuer_auth_public_key TEXT
-) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
-
-    if !credential_belongs_to_caller($original_credential_id) {
-        error('original credential does not belong to the caller');
-    }
-
-    if $public_notes != '' {
-        error('shared credentials cannot have public_notes, it must be an empty string');
-    }
-
-    add_credential(
-        $id,
-        $issuer_auth_public_key,
-        $encryptor_public_key,
-        $content,
-        $public_notes,
-        $public_notes_signature,
-        $broader_signature
-    );
-    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
-};
+-- Delegated write credential actions
 
 -- @generator.description "Add original credential and copy credential with AG on behalf of a user (using delegated write grant given by the user)"
 CREATE OR REPLACE ACTION create_credentials_by_dwg(
