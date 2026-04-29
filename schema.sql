@@ -116,6 +116,10 @@ CREATE TABLE IF NOT EXISTS delegates (
     FOREIGN KEY (inserter_id) REFERENCES inserters(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS gateways (
+    address TEXT PRIMARY KEY -- identifier of a gateway caller
+);
+
 CREATE TABLE IF NOT EXISTS consumed_write_grants (
     id UUID PRIMARY KEY,
     owner_wallet_identifier TEXT NOT NULL, -- user wallet/pk
@@ -166,6 +170,26 @@ CREATE OR REPLACE ACTION add_delegate_as_owner($address TEXT, $inserter_id UUID)
 -- @generator.description "Delete a delegate from idOS"
 CREATE OR REPLACE ACTION delete_delegate_as_owner($address TEXT) OWNER PUBLIC {
   DELETE FROM delegates WHERE address=$address;
+};
+
+
+-- GATEWAY ACTIONS
+
+-- @generator.description "Add a gateway as owner"
+CREATE OR REPLACE ACTION add_gateway_as_owner($address TEXT) OWNER PUBLIC {
+    INSERT INTO gateways (address) VALUES ($address);
+};
+
+-- @generator.description "Delete a gateway as owner"
+CREATE OR REPLACE ACTION delete_gateway_as_owner($address TEXT) OWNER PUBLIC {
+    DELETE FROM gateways WHERE address = $address;
+};
+
+CREATE OR REPLACE ACTION gateway_or_error() PRIVATE VIEW {
+    for $row in SELECT 1 FROM gateways WHERE address = @caller {
+        return;
+    }
+    error('Unauthorized gateway');
 };
 
 CREATE OR REPLACE ACTION get_inserter() PRIVATE VIEW RETURNS (name TEXT) {
@@ -1030,7 +1054,7 @@ CREATE OR REPLACE ACTION get_preliminary_credential_by_id_as_gateway($id UUID) P
     copy_content_manifest TEXT,
     created_at INT
 ) {
-    ingress_or_error(@caller);
+    gateway_or_error();
 
     return SELECT id, original_id, original_content_manifest, copy_id,
         copy_content_manifest, created_at
@@ -1041,7 +1065,7 @@ CREATE OR REPLACE ACTION finalize_credentials_by_dwg_as_gateway(
     $preliminary_original_id UUID,
     $preliminary_copy_id UUID,
 ) PUBLIC {
-    ingress_or_error(@caller);
+    gateway_or_error();
 
     $preliminary_found := false;
     $user_id UUID;
