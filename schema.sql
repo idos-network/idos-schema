@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS credentials (
     user_id UUID NOT NULL,
     verifiable_credential_id TEXT,
     public_notes TEXT NOT NULL,
-    content TEXT NOT NULL,
+    content TEXT,
+    content_manifest TEXT,
     encryptor_public_key TEXT NOT NULL,
     issuer_auth_public_key TEXT NOT NULL,
     inserter TEXT,
@@ -53,6 +54,28 @@ CREATE TABLE IF NOT EXISTS credentials (
 );
 CREATE INDEX IF NOT EXISTS credentials_user_id ON credentials(user_id);
 CREATE INDEX IF NOT EXISTS credentials_vc_id ON credentials(verifiable_credential_id);
+
+CREATE TABLE IF NOT EXISTS preliminary_credentials (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    original_id UUID,
+    original_content_manifest TEXT,
+    original_encryptor_public_key TEXT,
+    copy_id UUID,
+    copy_content_manifest TEXT,
+    copy_encryptor_public_key TEXT,
+    verifiable_credential_id TEXT,
+    content_hash TEXT,
+    public_notes TEXT,
+    issuer_auth_public_key TEXT NOT NULL,
+    grantee_wallet_identifier TEXT,
+    locked_until INT8,
+    original_id_for_copy UUID, -- it is needed for share_credential action
+    inserter TEXT,
+    created_at INT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_user_id ON preliminary_credentials(user_id);
 
 CREATE TABLE IF NOT EXISTS shared_credentials (
     original_id UUID NOT NULL,
@@ -800,6 +823,351 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
         $dwg_not_after
     );
 };
+
+CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
+    $request_id UUID,
+    $issuer_auth_public_key TEXT,
+    $original_encryptor_public_key TEXT,
+    $original_id UUID,
+    $original_content_manifest TEXT,
+    $original_public_notes TEXT,
+    $original_public_notes_signature TEXT,
+    $original_broader_signature TEXT,
+    $copy_encryptor_public_key TEXT,
+    $copy_id UUID,
+    $copy_content_manifest TEXT,
+    $copy_public_notes_signature TEXT,
+    $copy_broader_signature TEXT,
+    $content_hash TEXT, -- For access grant
+    $dwg_owner TEXT,
+    $dwg_grantee TEXT,
+    $dwg_issuer_public_key TEXT,
+    $dwg_id UUID,
+    $dwg_access_grant_timelock TEXT,
+    $dwg_not_before TEXT,
+    $dwg_not_after TEXT,
+    $dwg_signature TEXT) PUBLIC {
+
+    if $original_id = $copy_id {
+        error('the original id and copy id cannot be the same');
+    }
+
+    -- We will use the same ids for preliminary credentials as for credentials, so we need to check if they already exist
+    if credential_exist($original_id) {
+        error('the original credential already exists');
+    }
+    if credential_exist($copy_id) {
+        error('the copy credential already exists');
+    }
+
+    if length($original_content_manifest) > 1024 {
+        error('the original content manifest is too long');
+    }
+    if length($copy_content_manifest) > 1024 {
+        error('the copy content manifest is too long');
+    }
+
+    -- We capture gas upfront to prevent the real credential from being created if the gas is not enough
+    -- The gas can be refunded fully or partially
+    capture_gas(0::NUMERIC(6,2));
+
+    -- Check the content creator (encryptor) of credentials is the issuer that user delegated to issue the credentials
+    -- Q: @pkoch i am not sure that they have to be the same. Do we restrict credential creators to delegates?
+    $the_same_issuer := false;
+    for $row in SELECT 1 FROM delegates d1 INNER JOIN delegates d2 ON d1.inserter_id = d2.inserter_id
+        WHERE d1.address = lower($issuer_auth_public_key) AND d2.address = lower($dwg_issuer_public_key) LIMIT 1 {
+        $the_same_issuer := true;
+        break;
+    }
+    if !$the_same_issuer {
+        error('credentials issuer must be an issuer of delegated write grant');
+    }
+
+    -- Get the wallet type and public key for XRPL/NEAR wallets from database
+    $dwg_owner_found bool := false;
+    $dwg_owner_wallet_type string := '';
+    $dwg_owner_public_key string := '';
+    for $wallet in SELECT wallet_type, public_key FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
+            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $dwg_owner)  OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = $dwg_owner) {
+        $dwg_owner_found := true;
+        $dwg_owner_wallet_type := $wallet.wallet_type;
+        $dwg_owner_public_key := $wallet.public_key;
+        break;
+    }
+
+    if !$dwg_owner_found {
+        error('dwg_owner not found');
+    }
+
+    -- Will fail if not in the RFC3339 format
+    $ag_timelock = idos.parse_date($dwg_access_grant_timelock);
+
+    -- Check the format and precedence
+    if !idos.validate_not_usable_times($dwg_not_before, $dwg_not_after) {
+        error('dwg_not_before must be before dwg_not_after');
+    }
+
+    -- Check if current block timestamp in time range allowed by write grant.
+    -- @block_timestamp is a timestamp of previous block, which is can be a few seconds earlier
+    -- (max is 6 seconds in current network consensus settings) then a time on a requester's machine.
+    -- Also, if requester's machine has wrong time, it can be an issue.
+    if parse_unix_timestamp($dwg_not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int > (@block_timestamp + 65)
+            OR @block_timestamp > parse_unix_timestamp($dwg_not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int {
+
+        error('this write grant can only be used after dwg_not_before and before dwg_not_after');
+    }
+
+    $dwg_result = idos.dwg_verify_owner(
+        $dwg_owner,
+        $dwg_owner_wallet_type,
+        $dwg_owner_public_key,
+        $dwg_grantee,
+        $dwg_issuer_public_key,
+        $dwg_id::TEXT,
+        $dwg_access_grant_timelock,
+        $dwg_not_before,
+        $dwg_not_after,
+        $dwg_signature
+    );
+    if !$dwg_result {
+        error('verify owner failed');
+    }
+
+    $original_result = idos.assert_credential_signatures(
+        $issuer_auth_public_key,
+        $original_public_notes,
+        $original_public_notes_signature,
+        $original_content_manifest,
+        $original_broader_signature
+    );
+    if !$original_result {
+        error('an original credential signature is wrong');
+    }
+
+
+    $copy_result = idos.assert_credential_signatures(
+        $issuer_auth_public_key,
+        '',
+        $copy_public_notes_signature,
+        $copy_content_manifest,
+        $copy_broader_signature
+    );
+    if !$copy_result {
+        error('a copy credential signature is wrong');
+    }
+
+    $verifiable_credential_id = idos.get_verifiable_credential_id($original_public_notes);
+
+    INSERT INTO preliminary_credentials (
+        id,
+        user_id,
+        original_id,
+        original_content_manifest,
+        original_encryptor_public_key,
+        copy_id,
+        copy_content_manifest,
+        copy_encryptor_public_key,
+        verifiable_credential_id,
+        content_hash,
+        public_notes,
+        issuer_auth_public_key,
+        grantee_wallet_identifier,
+        locked_until,
+        original_id_for_copy,
+        inserter,
+        created_at
+    )
+    VALUES (
+        $request_id,
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
+            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $dwg_owner) OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = $dwg_owner)),
+        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
+        $original_id,
+        $original_content_manifest,
+        $original_encryptor_public_key,
+        $copy_id,
+        $copy_content_manifest,
+        $copy_encryptor_public_key,
+        $verifiable_credential_id,
+        $content_hash,
+        $public_notes,
+        $issuer_auth_public_key,
+        $dwg_grantee,
+        $ag_timelock,
+        $original_id,
+        $dwg_id::TEXT,
+        @block_timestamp
+    );
+
+    INSERT INTO consumed_write_grants (
+        id,
+        owner_wallet_identifier,
+        grantee_wallet_identifier,
+        issuer_public_key,
+        original_credential_id,
+        copy_credential_id,
+        access_grant_timelock,
+        not_usable_before,
+        not_usable_after
+    ) VALUES (
+        $dwg_id,
+        $dwg_owner,
+        $dwg_grantee,
+        $dwg_issuer_public_key,
+        $original_credential_id,
+        $copy_credential_id,
+        $dwg_access_grant_timelock,
+        $dwg_not_before,
+        $dwg_not_after
+    );
+};
+
+CREATE OR REPLACE ACTION get_preliminary_credential_by_id_as_gateway($id UUID) PUBLIC VIEW RETURNS (
+    id UUID,
+    original_id UUID,
+    original_content_manifest TEXT,
+    copy_id UUID,
+    copy_content_manifest TEXT,
+    created_at INT
+) {
+    ingress_or_error(@caller);
+
+    return SELECT id, original_id, original_content_manifest, copy_id,
+        copy_content_manifest, created_at
+        FROM preliminary_credentials WHERE id = $id
+};
+
+CREATE OR REPLACE ACTION finalize_credentials_by_dwg_as_gateway(
+    $preliminary_original_id UUID,
+    $preliminary_copy_id UUID,
+) PUBLIC {
+    ingress_or_error(@caller);
+
+    $preliminary_found := false;
+    $user_id UUID;
+    $original_id UUID;
+    $original_content_manifest TEXT;
+    $original_encryptor_public_key TEXT;
+    $copy_id UUID;
+    $copy_content_manifest TEXT;
+    $copy_encryptor_public_key TEXT;
+    $verifiable_credential_id TEXT;
+    $content_hash TEXT;
+    $public_notes TEXT;
+    $issuer_auth_public_key TEXT;
+    $grantee_wallet_identifier TEXT;
+    $locked_until INT8;
+    $original_id_for_copy UUID;
+    $inserter TEXT;
+
+    for $row in SELECT
+            user_id,
+            original_content_manifest,
+            original_encryptor_public_key,
+            copy_content_manifest,
+            copy_encryptor_public_key,
+            verifiable_credential_id,
+            content_hash,
+            public_notes,
+            issuer_auth_public_key,
+            grantee_wallet_identifier,
+            locked_until,
+            original_id_for_copy,
+            inserter
+            FROM preliminary_credentials
+            WHERE original_id = $preliminary_original_id AND copy_id = $preliminary_copy_id {
+        $preliminary_found := true;
+        $user_id := $row.user_id;
+        $original_content_manifest := $row.original_content_manifest;
+        $original_encryptor_public_key := $row.original_encryptor_public_key;
+        $copy_content_manifest := $row.copy_content_manifest;
+        $copy_encryptor_public_key := $row.copy_encryptor_public_key;
+        $verifiable_credential_id := $row.verifiable_credential_id;
+        $content_hash := $row.content_hash;
+        $public_notes := $row.public_notes;
+        $issuer_auth_public_key := $row.issuer_auth_public_key;
+        $grantee_wallet_identifier := $row.grantee_wallet_identifier;
+        $locked_until := $row.locked_until;
+        $original_id_for_copy := $row.original_id_for_copy;
+        $inserter := $row.inserter;
+        break;
+    }
+    if !$preliminary_found {
+        error('the original preliminary credential does not exist');
+    }
+
+    if preliminary_original_id is not null
+        AND preliminary_copy_id is not null
+        AND original_id_for_copy != preliminary_original_id {
+        error('the original_id_for_copy must be the same as the preliminary_original_id');
+    }
+
+    -- Insert original credential
+    if preliminary_original_id is not null {
+        if credential_exist($preliminary_original_id) {
+            error('the original credential already exists');
+        }
+        INSERT INTO credentials (
+            id,
+            user_id,
+            verifiable_credential_id,
+            public_notes,
+            content_manifest,
+            encryptor_public_key,
+            issuer_auth_public_key,
+            inserter
+        )
+        VALUES (
+            $preliminary_original_id,
+            $user_id,
+            $verifiable_credential_id,
+            $original_public_notes,
+            $original_content_manifest,
+            $original_encryptor_public_key,
+            $issuer_auth_public_key,
+            $inserter
+        );
+    }
+
+    -- Insert copy credential
+    if preliminary_copy_id is not null {
+        if credential_exist($preliminary_copy_id) {
+            error('the copy credential already exists');
+        }
+        INSERT INTO credentials (
+            id,
+            user_id,
+            verifiable_credential_id,
+            public_notes,
+            content_manifest,
+            encryptor_public_key,
+            issuer_auth_public_key,
+            inserter
+        )
+        VALUES (
+            $preliminary_copy_id,
+            $user_id,
+            NULL,
+            '',
+            $copy_content_manifest,
+            $copy_encryptor_public_key,
+            $issuer_auth_public_key,
+            $inserter
+        );
+
+        INSERT INTO shared_credentials (original_id, copy_id)
+            VALUES ($original_id_for_copy, $preliminary_copy_id);
+
+        create_access_grant(
+            $grantee_wallet_identifier,
+            $preliminary_copy_id,
+            $ag_timelock,
+            $content_hash,
+            'delegated_write_grant',
+            $inserter
+        );
+    }
+}
 
 CREATE OR REPLACE ACTION credential_exist_as_inserter($id UUID) PUBLIC VIEW RETURNS (credential_exist BOOL) {
     get_inserter();
