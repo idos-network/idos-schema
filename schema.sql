@@ -153,21 +153,25 @@ CREATE INDEX IF NOT EXISTS ag_owner_user_id ON access_grants(ag_owner_user_id);
 -- INSERTER AND DELEGATE ACTIONS
 
 -- @generator.description "Add inserter as owner"
+-- @generator.ignore
 CREATE OR REPLACE ACTION add_inserter_as_owner($id UUID, $name TEXT) OWNER PUBLIC {
     INSERT INTO inserters (id, name) VALUES ($id, $name);
 };
 
 -- @generator.description "Delete inserter as owner"
+-- @generator.ignore
 CREATE OR REPLACE ACTION delete_inserter_as_owner($id UUID) OWNER PUBLIC {
     DELETE FROM inserters WHERE id = $id;
 };
 
 -- @generator.description "Add a delegate as owner"
+-- @generator.ignore
 CREATE OR REPLACE ACTION add_delegate_as_owner($address TEXT, $inserter_id UUID) OWNER PUBLIC {
   INSERT INTO delegates (address, inserter_id) VALUES (lower($address), $inserter_id);
 };
 
 -- @generator.description "Delete a delegate from idOS"
+-- @generator.ignore
 CREATE OR REPLACE ACTION delete_delegate_as_owner($address TEXT) OWNER PUBLIC {
   DELETE FROM delegates WHERE address=$address;
 };
@@ -176,11 +180,13 @@ CREATE OR REPLACE ACTION delete_delegate_as_owner($address TEXT) OWNER PUBLIC {
 -- GATEWAY ACTIONS
 
 -- @generator.description "Add a gateway as owner"
+-- @generator.ignore
 CREATE OR REPLACE ACTION add_gateway_as_owner($address TEXT) OWNER PUBLIC {
     INSERT INTO gateways (address) VALUES ($address);
 };
 
 -- @generator.description "Delete a gateway as owner"
+-- @generator.ignore
 CREATE OR REPLACE ACTION delete_gateway_as_owner($address TEXT) OWNER PUBLIC {
     DELETE FROM gateways WHERE address = $address;
 };
@@ -1046,6 +1052,7 @@ CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
     );
 };
 
+-- @generator.ignore
 CREATE OR REPLACE ACTION get_preliminary_credential_by_id_as_gateway($id UUID) PUBLIC VIEW RETURNS (
     id UUID,
     original_id UUID,
@@ -1061,6 +1068,7 @@ CREATE OR REPLACE ACTION get_preliminary_credential_by_id_as_gateway($id UUID) P
         FROM preliminary_credentials WHERE id = $id
 };
 
+-- @generator.ignore
 CREATE OR REPLACE ACTION finalize_credentials_by_dwg_as_gateway(
     $preliminary_original_id UUID,
     $preliminary_copy_id UUID,
