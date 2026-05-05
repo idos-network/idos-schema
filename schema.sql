@@ -1044,8 +1044,8 @@ CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
         $dwg_owner,
         $dwg_grantee,
         $dwg_issuer_public_key,
-        $original_credential_id,
-        $copy_credential_id,
+        $original_id,
+        $copy_id,
         $dwg_access_grant_timelock,
         $dwg_not_before,
         $dwg_not_after
@@ -1128,14 +1128,14 @@ CREATE OR REPLACE ACTION finalize_credentials_by_dwg_as_gateway(
         error('the original preliminary credential does not exist');
     }
 
-    if preliminary_original_id is not null
-        AND preliminary_copy_id is not null
-        AND original_id_for_copy != preliminary_original_id {
+    if $preliminary_original_id is not null
+        AND $preliminary_copy_id is not null
+        AND $original_id_for_copy != $preliminary_original_id {
         error('the original_id_for_copy must be the same as the preliminary_original_id');
     }
 
     -- Insert original credential
-    if preliminary_original_id is not null {
+    if $preliminary_original_id is not null {
         if credential_exist($preliminary_original_id) {
             error('the original credential already exists');
         }
@@ -1153,7 +1153,7 @@ CREATE OR REPLACE ACTION finalize_credentials_by_dwg_as_gateway(
             $preliminary_original_id,
             $user_id,
             $verifiable_credential_id,
-            $original_public_notes,
+            $public_notes,
             $original_content_manifest,
             $original_encryptor_public_key,
             $issuer_auth_public_key,
@@ -1162,7 +1162,7 @@ CREATE OR REPLACE ACTION finalize_credentials_by_dwg_as_gateway(
     }
 
     -- Insert copy credential
-    if preliminary_copy_id is not null {
+    if $preliminary_copy_id is not null {
         if credential_exist($preliminary_copy_id) {
             error('the copy credential already exists');
         }
@@ -1193,7 +1193,7 @@ CREATE OR REPLACE ACTION finalize_credentials_by_dwg_as_gateway(
         create_access_grant(
             $grantee_wallet_identifier,
             $preliminary_copy_id,
-            $ag_timelock,
+            $locked_until,
             $content_hash,
             'delegated_write_grant',
             $inserter
