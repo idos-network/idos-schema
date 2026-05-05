@@ -46,6 +46,7 @@ Use SQL comments to control code generation:
 - `@generator.description "text"` - Add description for the action
 - `@generator.paramOptional "paramName"` - Mark parameter as optional
 - `@generator.notAuthorized` - Mark action as requiring authorization
+- `@generator.skip` / `@generator.ignore` - Exclude action from generated output
 
 ### Example TypeScript Generated Code
 

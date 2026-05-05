@@ -23,6 +23,8 @@ export interface KwilAction {
 }
 
 export interface GeneratorComments {
+  skip: boolean;
+  ignore: boolean;
   notAuthorized: boolean;
   description: string;
   paramOptional: string[];
@@ -74,7 +76,7 @@ export function parseSchema(schemaPath: string): KwilAction[] {
           }
 
           acc.returnOptional.push(...parseArrayDescription(result[2]));
-        } else if (["notAuthorized"].includes(result[1])) {
+        } else if (["notAuthorized", "skip", "ignore"].includes(result[1])) {
           // @ts-expect-error No infer types
           acc[result[1]] = result[2] || true;
         } else {
