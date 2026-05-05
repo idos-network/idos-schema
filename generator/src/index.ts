@@ -20,7 +20,7 @@ program
   .action((options) => {
     console.log(`Generating KWIL-Actions from ${chalk.green(options.input)} in ${chalk.green(options.format)} format`);
     const ast = parseSchema(options.input).filter(
-      x => x.private === false && !x.generatorComments.skip && !x.generatorComments.ignore
+      x => x.private === false && !x.generatorComments.ignore
     );
 
     if (options.format === 'ts') {

@@ -23,7 +23,6 @@ export interface KwilAction {
 }
 
 export interface GeneratorComments {
-  skip: boolean;
   ignore: boolean;
   notAuthorized: boolean;
   description: string;
@@ -55,7 +54,7 @@ export function parseSchema(schemaPath: string): KwilAction[] {
     // parse comments
     const generatorComments = statement
       .comments
-      .filter(comment => comment.trim().startsWith("@generator.")) // @generator.skip, @generator.not_authorized etc...
+      .filter(comment => comment.trim().startsWith("@generator.")) // @generator.ignore, @generator.not_authorized etc...
       .reduce((acc, comment) => {
         const result = [...comment.trim().matchAll(/@generator\.([a-zA-Z_-]*)\s*(([^\n])*){0,1}/gm)].flat();
 
@@ -76,7 +75,7 @@ export function parseSchema(schemaPath: string): KwilAction[] {
           }
 
           acc.returnOptional.push(...parseArrayDescription(result[2]));
-        } else if (["notAuthorized", "skip", "ignore"].includes(result[1])) {
+        } else if (["notAuthorized", "ignore"].includes(result[1])) {
           // @ts-expect-error No infer types
           acc[result[1]] = result[2] || true;
         } else {
