@@ -1,0 +1,1 @@
+ALTER TABLE credentials ALTER COLUMN content DROP NOT NULL;
