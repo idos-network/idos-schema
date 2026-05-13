@@ -91,6 +91,11 @@ CREATE TABLE IF NOT EXISTS shared_credentials (
 );
 CREATE INDEX IF NOT EXISTS shared_credentials_copy_id ON shared_credentials(copy_id);
 
+CREATE TABLE IF NOT EXISTS content_uris_to_delete (
+    content_uri TEXT PRIMARY KEY,
+    created_at INT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS user_attributes (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL,
@@ -559,6 +564,12 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
     if has_locked_access_grants($id) {
         error('there are locked access grants for this credential');
     }
+
+    INSERT INTO content_uris_to_delete (content_uri, created_at)
+        SELECT content_uri, @block_timestamp FROM credentials
+        WHERE id = $id AND content_uri IS NOT NULL
+        ON CONFLICT (content_uri) DO NOTHING;
+
     DELETE FROM credentials
     WHERE id=$id
     AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
@@ -584,6 +595,11 @@ CREATE OR REPLACE ACTION rescind_shared_credential($credential_id UUID) PUBLIC {
     if !$credential_found {
         error('can not find the credential shared to you');
     }
+
+    INSERT INTO content_uris_to_delete (content_uri, created_at)
+        SELECT content_uri, @block_timestamp FROM credentials
+        WHERE id = $credential_id AND content_uri IS NOT NULL
+        ON CONFLICT (content_uri) DO NOTHING;
 
     DELETE FROM credentials WHERE id = $credential_id;
     DELETE FROM access_grants WHERE data_id = $credential_id;
@@ -1077,6 +1093,25 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
     }
 };
 
+-- @generator.ignore
+CREATE OR REPLACE ACTION blob_deletion_queue_as_gateway() PUBLIC VIEW RETURNS table (
+    content_uri TEXT,
+    created_at INT
+) {
+    gateway_or_error();
+
+    return SELECT content_uri, created_at FROM content_uris_to_delete;
+};
+
+-- @generator.ignore
+CREATE OR REPLACE ACTION confirm_blob_deleted_as_gateway($content_uris TEXT[]) PUBLIC {
+    gateway_or_error();
+
+    FOR $uri IN ARRAY $content_uris {
+        DELETE FROM content_uris_to_delete WHERE content_uri = $uri;
+    }
+};
+
 CREATE OR REPLACE ACTION credential_exist_as_inserter($id UUID) PUBLIC VIEW RETURNS (credential_exist BOOL) {
     get_inserter();
     return credential_exist($id);
@@ -1186,6 +1221,9 @@ CREATE OR REPLACE ACTION content_uri_in_use($uri TEXT) PRIVATE VIEW RETURNS (in_
     }
     for $row in SELECT 1 FROM preliminary_credentials
         WHERE original_content_uri = $uri OR copy_content_uri = $uri {
+        return true;
+    }
+    for $row in SELECT 1 FROM content_uris_to_delete WHERE content_uri = $uri {
         return true;
     }
     return false;
