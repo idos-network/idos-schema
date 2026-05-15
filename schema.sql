@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS credentials (
 );
 CREATE INDEX IF NOT EXISTS credentials_user_id ON credentials(user_id);
 CREATE INDEX IF NOT EXISTS credentials_vc_id ON credentials(verifiable_credential_id);
+CREATE INDEX IF NOT EXISTS credentials_content_uri ON credentials(content_uri);
 
 CREATE TABLE IF NOT EXISTS preliminary_credentials (
     id UUID PRIMARY KEY,
@@ -1110,6 +1111,32 @@ CREATE OR REPLACE ACTION confirm_blob_deleted_as_gateway($content_uris TEXT[]) P
     FOR $uri IN ARRAY $content_uris {
         DELETE FROM content_uris_to_delete WHERE content_uri = $uri;
     }
+};
+
+-- @generator.ignore
+CREATE OR REPLACE ACTION authorize_blob_fetch_as_gateway(
+    $cid TEXT,
+    $wallet_identifier TEXT
+) PUBLIC VIEW RETURNS (authorized BOOL) {
+    gateway_or_error();
+
+    for $row in SELECT 1 FROM credentials AS c
+        INNER JOIN access_grants AS ag ON c.id = ag.data_id
+        WHERE c.content_uri = $cid
+            AND ag.ag_grantee_wallet_identifier = $wallet_identifier COLLATE NOCASE {
+
+        return true;
+    }
+
+    for $row in SELECT 1 FROM credentials WHERE content_uri = $cid
+        AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $wallet_identifier COLLATE NOCASE)
+            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $wallet_identifier)
+            OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = $wallet_identifier)) {
+
+        return true;
+    }
+
+    return false;
 };
 
 CREATE OR REPLACE ACTION credential_exist_as_inserter($id UUID) PUBLIC VIEW RETURNS (credential_exist BOOL) {
