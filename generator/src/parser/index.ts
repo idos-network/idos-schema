@@ -54,9 +54,10 @@ function applyGeneratorComment(acc: GeneratorComments, directive: string, rawVal
     }
 
     acc.returnOptional.push(...parseArrayDescription(value));
-  } else if (["notAuthorized", "ignore"].includes(directive)) {
-    // @ts-expect-error No infer types
-    acc[directive] = value || true;
+  } else if (directive === "notAuthorized") {
+    acc.notAuthorized = true;
+  } else if (directive === "ignore") {
+    acc.ignore = true;
   } else {
     // @ts-expect-error No infer types
     acc[directive] = value?.replace(/\"/g, "");
