@@ -947,11 +947,10 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
 
     $preliminary_found := false;
     $user_id UUID;
-    $original_id UUID;
+    $preliminary_id UUID;
     $original_content_uri TEXT;
     $original_content_size INT;
     $original_encryptor_public_key TEXT;
-    $copy_id UUID;
     $copy_content_uri TEXT;
     $copy_content_size INT;
     $copy_encryptor_public_key TEXT;
@@ -966,6 +965,7 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
     $inserter_id TEXT;
 
     for $row in SELECT
+            id,
             user_id,
             original_content_uri,
             original_content_size,
@@ -991,6 +991,7 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
                 OR (copy_id IS NULL AND $preliminary_copy_id IS NULL)
             ) {
         $preliminary_found := true;
+        $preliminary_id := $row.id;
         $user_id := $row.user_id;
         $original_content_uri := $row.original_content_uri;
         $original_content_size := $row.original_content_size;
@@ -1098,6 +1099,8 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
             $inserter_id
         );
     }
+
+    DELETE FROM preliminary_credentials WHERE id = $preliminary_id;
 };
 
 CREATE OR REPLACE ACTION delete_stale_prelim_as_gateway($age_seconds INT) PUBLIC {
