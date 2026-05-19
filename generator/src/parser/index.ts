@@ -39,6 +39,32 @@ function parseArrayDescription(input: string): string[] {
   return input.replace(/\"/g, "").split(",").map(s => s.trim()).filter(s => s.length > 0);
 }
 
+function applyGeneratorComment(acc: GeneratorComments, directive: string, rawValue: string): GeneratorComments {
+  const value = rawValue.trim();
+
+  if (directive === "paramOptional") {
+    if (!acc.paramOptional) {
+      acc.paramOptional = [];
+    }
+
+    acc.paramOptional.push(...parseArrayDescription(value));
+  } else if (directive === "returnOptional") {
+    if (!acc.returnOptional) {
+      acc.returnOptional = [];
+    }
+
+    acc.returnOptional.push(...parseArrayDescription(value));
+  } else if (["notAuthorized", "ignore"].includes(directive)) {
+    // @ts-expect-error No infer types
+    acc[directive] = value || true;
+  } else {
+    // @ts-expect-error No infer types
+    acc[directive] = value?.replace(/\"/g, "");
+  }
+
+  return acc;
+}
+
 export function parseSchema(schemaPath: string): KwilAction[] {
   const sql = fs.readFileSync(schemaPath, 'utf8');
 
@@ -56,31 +82,19 @@ export function parseSchema(schemaPath: string): KwilAction[] {
       .comments
       .filter(comment => comment.trim().startsWith("@generator.")) // @generator.ignore, @generator.not_authorized etc...
       .reduce((acc, comment) => {
-        const result = [...comment.trim().matchAll(/@generator\.([a-zA-Z_-]*)\s*(([^\n])*){0,1}/gm)].flat();
+        const trimmedComment = comment.trim();
+        const results = [...trimmedComment.matchAll(/@generator\.([a-zA-Z_-]+)/gm)];
 
-        if (result.length === 0) {
+        if (results.length === 0) {
           console.error("Invalid comment format:", comment);
           return acc;
         }
-        if (result[1] === "paramOptional") {
-          if (!acc.paramOptional) {
-            acc.paramOptional = [];
-          }
 
+        for (const [index, result] of results.entries()) {
+          const valueStart = (result.index ?? 0) + result[0].length;
+          const valueEnd = results[index + 1]?.index ?? trimmedComment.length;
 
-          acc.paramOptional.push(...parseArrayDescription(result[2]));
-        } else if (result[1] === "returnOptional") {
-          if (!acc.returnOptional) {
-            acc.returnOptional = [];
-          }
-
-          acc.returnOptional.push(...parseArrayDescription(result[2]));
-        } else if (["notAuthorized", "ignore"].includes(result[1])) {
-          // @ts-expect-error No infer types
-          acc[result[1]] = result[2] || true;
-        } else {
-          // @ts-expect-error No infer types
-          acc[result[1]] = result[2]?.replace(/\"/g, "");
+          applyGeneratorComment(acc, result[1], trimmedComment.slice(valueStart, valueEnd));
         }
 
         return acc;

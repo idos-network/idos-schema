@@ -13,7 +13,7 @@ const test = moo.compile({
   VIEW: "VIEW",
   OWNER: "OWNER",
   TABLE: /table|TABLE/,
-  TYPE: ['TEXT', 'UUID', 'INT', 'BOOLEAN', 'BOOL', 'INT8', 'NUMERIC'],
+  TYPE: ['TEXT[]', 'UUID[]', 'INT[]', 'TEXT', 'UUID', 'INT', 'BOOLEAN', 'BOOL', 'INT8', 'NUMERIC'],
   RETURNS: /returns|RETURNS/,
   PRECISION: /[0-9]+,[0-9]+/,
   IDENT:     /\$?[a-zA-Z_][a-zA-Z0-9_]*/,
