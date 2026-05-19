@@ -1094,6 +1094,16 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
     }
 };
 
+CREATE OR REPLACE ACTION delete_stale_prelim_as_gateway($age_seconds INT) PUBLIC {
+    gateway_or_error();
+
+    if $age_seconds is null or $age_seconds <= 0 {
+        error('age_seconds must be positive');
+    }
+
+    DELETE FROM preliminary_credentials WHERE (@block_timestamp - created_at) > $age_seconds;
+};
+
 -- @generator.ignore
 CREATE OR REPLACE ACTION blob_deletion_queue_as_gateway() PUBLIC VIEW RETURNS table (
     content_uri TEXT,
