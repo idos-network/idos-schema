@@ -983,7 +983,13 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
             inserter_type,
             inserter_id
             FROM preliminary_credentials
-            WHERE original_id = $preliminary_original_id AND copy_id = $preliminary_copy_id {
+            WHERE (
+                original_id = $preliminary_original_id
+                OR (original_id IS NULL AND $preliminary_original_id IS NULL)
+            ) AND (
+                copy_id = $preliminary_copy_id
+                OR (copy_id IS NULL AND $preliminary_copy_id IS NULL)
+            ) {
         $preliminary_found := true;
         $user_id := $row.user_id;
         $original_content_uri := $row.original_content_uri;
