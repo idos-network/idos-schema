@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS credentials (
     inserter_type TEXT,
     inserter_id TEXT,
     issuer_fee NUMERIC(78,0) NOT NULL DEFAULT 0,
+    CHECK (content IS NOT NULL OR content_uri IS NOT NULL),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS credentials_user_id ON credentials(user_id);
