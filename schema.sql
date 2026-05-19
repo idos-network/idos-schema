@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS credentials (
     public_notes TEXT NOT NULL,
     content TEXT,
     content_uri TEXT,
-    content_size INT CHECK (content_size IS NULL OR content_size > 0),
+    content_size INT8 CHECK (content_size IS NULL OR content_size > 0),
     encryptor_public_key TEXT NOT NULL,
     issuer_auth_public_key TEXT NOT NULL,
     inserter_type TEXT,
@@ -64,11 +64,11 @@ CREATE TABLE IF NOT EXISTS preliminary_credentials (
     user_id UUID NOT NULL,
     original_id UUID,
     original_content_uri TEXT,
-    original_content_size INT CHECK (original_content_size IS NULL OR original_content_size > 0),
+    original_content_size INT8 CHECK (original_content_size IS NULL OR original_content_size > 0),
     original_encryptor_public_key TEXT,
     copy_id UUID,
     copy_content_uri TEXT,
-    copy_content_size INT CHECK (copy_content_size IS NULL OR copy_content_size > 0),
+    copy_content_size INT8 CHECK (copy_content_size IS NULL OR copy_content_size > 0),
     copy_encryptor_public_key TEXT,
     verifiable_credential_id TEXT,
     content_hash TEXT,
@@ -427,7 +427,7 @@ CREATE OR REPLACE ACTION create_preliminary_credential (
     $issuer_auth_public_key TEXT,
     $encryptor_public_key TEXT,
     $content_uri TEXT,
-    $content_size INT,
+    $content_size INT8,
     $content_hash TEXT,
     $public_notes TEXT,
     $public_notes_signature TEXT,
@@ -620,7 +620,7 @@ CREATE OR REPLACE ACTION share_preliminary_credential (
     $public_notes_signature TEXT,
     $broader_signature TEXT,
     $content_uri TEXT,
-    $content_size INT,
+    $content_size INT8,
     $content_hash TEXT,
     $encryptor_public_key TEXT,
     $issuer_auth_public_key TEXT,
@@ -710,14 +710,14 @@ CREATE OR REPLACE ACTION create_prelim_credentials_by_dwg(
     $original_encryptor_public_key TEXT,
     $original_id UUID,
     $original_content_uri TEXT,
-    $original_content_size INT,
+    $original_content_size INT8,
     $original_public_notes TEXT,
     $original_public_notes_signature TEXT,
     $original_broader_signature TEXT,
     $copy_encryptor_public_key TEXT,
     $copy_id UUID,
     $copy_content_uri TEXT,
-    $copy_content_size INT,
+    $copy_content_size INT8,
     $copy_public_notes_signature TEXT,
     $copy_broader_signature TEXT,
     $content_hash TEXT, -- For access grant
@@ -931,10 +931,10 @@ CREATE OR REPLACE ACTION get_prelim_credential_as_gateway($id UUID) PUBLIC VIEW 
     id UUID,
     original_id UUID,
     original_content_uri TEXT,
-    original_content_size INT,
+    original_content_size INT8,
     copy_id UUID,
     copy_content_uri TEXT,
-    copy_content_size INT,
+    copy_content_size INT8,
     created_at INT
 ) {
     gateway_or_error();
@@ -955,10 +955,10 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
     $user_id UUID;
     $preliminary_id UUID;
     $original_content_uri TEXT;
-    $original_content_size INT;
+    $original_content_size INT8;
     $original_encryptor_public_key TEXT;
     $copy_content_uri TEXT;
-    $copy_content_size INT;
+    $copy_content_size INT8;
     $copy_encryptor_public_key TEXT;
     $verifiable_credential_id TEXT;
     $content_hash TEXT;
@@ -1176,7 +1176,7 @@ CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS tab
     public_notes TEXT,
     content TEXT,
     content_uri TEXT,
-    content_size INT,
+    content_size INT8,
     encryptor_public_key TEXT,
     issuer_auth_public_key TEXT,
     inserter_type TEXT,
@@ -1200,7 +1200,7 @@ CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS ta
     public_notes TEXT,
     content TEXT,
     content_uri TEXT,
-    content_size INT,
+    content_size INT8,
     encryptor_public_key TEXT,
     issuer_auth_public_key TEXT,
     inserter_type TEXT,
