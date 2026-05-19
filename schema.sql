@@ -624,6 +624,11 @@ CREATE OR REPLACE ACTION share_preliminary_credential (
 ) PUBLIC {
     capture_gas(0::NUMERIC(6,2));
 
+    if !credential_belongs_to_caller($original_id) {
+        error('original credential does not belong to the caller');
+    }
+
+
     if credential_id_in_use($copy_id) {
         error('copy credential id already in use or reserved in a pending preliminary');
     }
@@ -639,10 +644,6 @@ CREATE OR REPLACE ACTION share_preliminary_credential (
 
     if content_uri_in_use($content_uri) {
         error('content uri already in use');
-    }
-
-    if !credential_belongs_to_caller($original_id) {
-        error('original credential does not belong to the caller');
     }
 
     if $public_notes != '' {
