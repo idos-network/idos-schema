@@ -1133,6 +1133,7 @@ CREATE OR REPLACE ACTION get_stale_prelim_as_gateway($age_seconds INT) PUBLIC VI
         WHERE (@block_timestamp - created_at) > $age_seconds;
 };
 
+-- `@generator.ignore`
 CREATE OR REPLACE ACTION delete_stale_prelim_as_gateway($age_seconds INT) PUBLIC {
     gateway_or_error();
 
