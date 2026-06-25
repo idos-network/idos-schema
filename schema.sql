@@ -1141,6 +1141,18 @@ CREATE OR REPLACE ACTION delete_stale_prelim_as_gateway($age_seconds INT) PUBLIC
         error('age_seconds must be positive');
     }
 
+    INSERT INTO content_uris_to_delete (content_uri, created_at)
+        SELECT original_content_uri, @block_timestamp FROM preliminary_credentials
+        WHERE (@block_timestamp - created_at) > $age_seconds
+            AND original_content_uri IS NOT NULL
+        ON CONFLICT (content_uri) DO NOTHING;
+
+    INSERT INTO content_uris_to_delete (content_uri, created_at)
+        SELECT copy_content_uri, @block_timestamp FROM preliminary_credentials
+        WHERE (@block_timestamp - created_at) > $age_seconds
+            AND copy_content_uri IS NOT NULL
+        ON CONFLICT (content_uri) DO NOTHING;
+
     DELETE FROM preliminary_credentials WHERE (@block_timestamp - created_at) > $age_seconds;
 };
 
