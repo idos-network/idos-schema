@@ -197,13 +197,13 @@ CREATE OR REPLACE ACTION delete_delegate_as_owner($address TEXT) OWNER PUBLIC {
 -- @generator.description "Add a gateway as owner"
 -- @generator.ignore
 CREATE OR REPLACE ACTION add_gateway_as_owner($address TEXT) OWNER PUBLIC {
-    INSERT INTO gateways (address) VALUES ($address);
+    INSERT INTO gateways (address) VALUES (lower($address));
 };
 
 -- @generator.description "Delete a gateway as owner"
 -- @generator.ignore
 CREATE OR REPLACE ACTION delete_gateway_as_owner($address TEXT) OWNER PUBLIC {
-    DELETE FROM gateways WHERE address = $address;
+    DELETE FROM gateways WHERE address = lower($address);
 };
 
 CREATE OR REPLACE ACTION gateway_or_error() PRIVATE VIEW {
