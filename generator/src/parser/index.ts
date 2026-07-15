@@ -99,7 +99,13 @@ export function parseSchema(schemaPath: string): KwilAction[] {
         }
 
         return acc;
-      }, {} as GeneratorComments);
+      }, {
+        ignore: false,
+        notAuthorized: false,
+        description: "",
+        paramOptional: [],
+        returnOptional: [],
+      });
 
     actions.push({
       ...parser.results[0][0],
