@@ -83,11 +83,11 @@ CREATE TABLE IF NOT EXISTS preliminary_credentials (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS preliminary_credentials_user_id ON preliminary_credentials(user_id);
-CREATE INDEX IF NOT EXISTS prelim_cred_original_id_copy_id ON preliminary_credentials(original_id, copy_id);
-CREATE INDEX IF NOT EXISTS prelim_cred_copy_id ON preliminary_credentials(copy_id);
-CREATE INDEX IF NOT EXISTS prelim_cred_original_content_uri ON preliminary_credentials(original_content_uri);
-CREATE INDEX IF NOT EXISTS prelim_cred_copy_content_uri ON preliminary_credentials(copy_content_uri);
-CREATE INDEX IF NOT EXISTS prelim_cred_created_at ON preliminary_credentials(created_at);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_original_id_copy_id ON preliminary_credentials(original_id, copy_id);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_copy_id ON preliminary_credentials(copy_id);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_original_content_uri ON preliminary_credentials(original_content_uri);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_copy_content_uri ON preliminary_credentials(copy_content_uri);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_created_at ON preliminary_credentials(created_at);
 
 CREATE TABLE IF NOT EXISTS shared_credentials (
     original_id UUID NOT NULL,
@@ -705,7 +705,7 @@ CREATE OR REPLACE ACTION share_preliminary_credential (
 -- Delegated write credential actions
 
 -- @generator.description "Add original credential and copy credential with AG on behalf of a user (using delegated write grant given by the user)"
-CREATE OR REPLACE ACTION create_prelim_credentials_by_dwg(
+CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
     $request_id UUID,
     $issuer_auth_public_key TEXT,
     $original_encryptor_public_key TEXT,
@@ -928,7 +928,7 @@ CREATE OR REPLACE ACTION create_prelim_credentials_by_dwg(
 };
 
 -- @generator.ignore
-CREATE OR REPLACE ACTION get_prelim_credential_as_gateway($id UUID) PUBLIC VIEW RETURNS (
+CREATE OR REPLACE ACTION get_preliminary_credential_as_gateway($id UUID) PUBLIC VIEW RETURNS (
     id UUID,
     original_id UUID,
     original_content_uri TEXT,
@@ -1111,7 +1111,7 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
 };
 
 -- @generator.ignore
-CREATE OR REPLACE ACTION get_stale_prelim_as_gateway($age_seconds INT) PUBLIC VIEW RETURNS table (
+CREATE OR REPLACE ACTION get_stale_preliminary_as_gateway($age_seconds INT) PUBLIC VIEW RETURNS table (
     id UUID,
     original_id UUID,
     original_content_uri TEXT,
@@ -1134,7 +1134,7 @@ CREATE OR REPLACE ACTION get_stale_prelim_as_gateway($age_seconds INT) PUBLIC VI
 };
 
 -- `@generator.ignore`
-CREATE OR REPLACE ACTION delete_stale_prelim_as_gateway($age_seconds INT) PUBLIC {
+CREATE OR REPLACE ACTION delete_stale_preliminary_as_gateway($age_seconds INT) PUBLIC {
     gateway_or_error();
 
     if $age_seconds is null or $age_seconds <= 0 {
