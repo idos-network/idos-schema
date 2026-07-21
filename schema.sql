@@ -772,17 +772,22 @@ CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
     -- The gas can be refunded fully or partially
     capture_gas(0::NUMERIC(6,2));
 
-    -- Check the content creator (encryptor) of credentials is the issuer that user delegated to issue the credentials
-    -- Q: @pkoch i am not sure that they have to be the same. Do we restrict credential creators to delegates?
+    -- Temporary: an issuer is not an inserter/caller. A user grants a DWG to an issuer_key;
+    -- the issuer must issue the credential and sign the proof with that same issuer_key.
+    -- Today we approximate "same issuer" via delegates sharing an inserter_id.
+    -- TODO: once the SDK distinguishes issuer_key from delegate_key, replace with:
+    --   if $issuer_auth_public_key != $dwg_issuer_public_key {
+    --       error('credentials issuer must be an issuer of delegated write grant');
+    --   }
     $the_same_issuer := false;
     for $row in SELECT 1 FROM delegates d1 INNER JOIN delegates d2 ON d1.inserter_id = d2.inserter_id
         WHERE d1.address = lower($issuer_auth_public_key) AND d2.address = lower($dwg_issuer_public_key) LIMIT 1 {
         $the_same_issuer := true;
         break;
     }
-    -- if !$the_same_issuer {
-    --     error('credentials issuer must be an issuer of delegated write grant');
-    -- }
+    if !$the_same_issuer {
+        error('credentials issuer must be an issuer of delegated write grant');
+    }
 
     -- Get the wallet type and public key for XRPL/NEAR wallets from database
     $dwg_owner_found bool := false;
