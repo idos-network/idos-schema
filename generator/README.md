@@ -115,3 +115,12 @@ The parser uses Nearley for grammar parsing. To modify the grammar:
 - `INT` / `INT8` → `number`
 - `BOOLEAN` / `BOOL` → `boolean`
 
+### Built-in field Zod refinements
+
+These parameter/return names get tighter Zod schemas than the raw SQL type:
+
+- `wallet_type` → `walletTypeSchema`
+- `encryption_password_store` → `encryptionPasswordStoreSchema`
+- `content_uri` / `*_content_uri` → `ipfsContentUriSchema` (`ipfs://` prefix) on **inputs**
+- `content_size` / `*_content_size` → `contentSizeSchema` (positive int) on **inputs**
+

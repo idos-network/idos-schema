@@ -493,17 +493,20 @@ CREATE OR REPLACE ACTION create_preliminary_credential (
     );
 };
 
--- @generator.returnOptional "original_id", "inserter_type", "inserter_id"
+-- @generator.returnOptional "content_uri", "content_size", "original_id", "inserter_type", "inserter_id"
 CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
     public_notes TEXT,
+    content_uri TEXT,
+    content_size INT8,
     issuer_auth_public_key TEXT,
     inserter_type TEXT,
     inserter_id TEXT,
     original_id UUID
 ) {
-    return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.issuer_auth_public_key, c.inserter_type, c.inserter_id, sc.original_id
+    return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.content_uri, c.content_size,
+            c.issuer_auth_public_key, c.inserter_type, c.inserter_id, sc.original_id
         FROM credentials AS c
         LEFT JOIN shared_credentials AS sc ON c.id = sc.copy_id
         INNER JOIN wallets ON c.user_id = wallets.user_id
@@ -1211,7 +1214,7 @@ CREATE OR REPLACE ACTION credential_exist_as_inserter($id UUID) PUBLIC VIEW RETU
     return credential_exist($id);
 };
 
--- @generator.returnOptional "content", "content_uri", "inserter_type", "inserter_id"
+-- @generator.returnOptional "content", "content_uri", "content_size", "inserter_type", "inserter_id"
 CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
@@ -1235,7 +1238,7 @@ CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS tab
 };
 
 -- As a credential copy doesn't contain PUBLIC notes, we return respective original credential PUBLIC notes
--- @generator.returnOptional "content", "content_uri", "inserter_type", "inserter_id"
+-- @generator.returnOptional "content", "content_uri", "content_size", "inserter_type", "inserter_id"
 CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
