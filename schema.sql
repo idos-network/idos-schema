@@ -1569,22 +1569,6 @@ CREATE OR REPLACE ACTION has_locked_access_grants($id UUID) PUBLIC VIEW RETURNS 
     return false;
 };
 
-CREATE OR REPLACE ACTION dag_message(
-    $dag_owner_wallet_identifier TEXT,
-    $dag_grantee_wallet_identifier TEXT,
-    $dag_data_id UUID,
-    $dag_locked_until INT,
-    $dag_content_hash TEXT
-) PUBLIC VIEW returns (message TEXT) {
-    return idos.dag_message(
-        $dag_owner_wallet_identifier,
-        $dag_grantee_wallet_identifier,
-        $dag_data_id::TEXT,
-        $dag_locked_until,
-        $dag_content_hash
-    );
-};
-
 -- @generator.description "Create a new access grant"
 CREATE OR REPLACE ACTION create_access_grant(
     $grantee_wallet_identifier TEXT,
