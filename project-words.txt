@@ -16,3 +16,4 @@ xrpl
 arbitrumsepolia
 GCFXQ
 fkey
+ipfs
