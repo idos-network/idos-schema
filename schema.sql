@@ -345,6 +345,7 @@ CREATE OR REPLACE ACTION add_wallet(
         error('mm_token callers cannot add wallets');
     }
 
+    -- MM wallets are intentionally excluded: they are only created via upsert_wallet_as_inserter.
     if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'FaceSign' {
         error('unsupported wallet type');
     }
@@ -1142,7 +1143,7 @@ CREATE OR REPLACE ACTION get_stale_preliminary_as_gateway($age_seconds INT) PUBL
         WHERE (@block_timestamp - created_at) > $age_seconds;
 };
 
--- `@generator.ignore`
+-- @generator.ignore
 CREATE OR REPLACE ACTION delete_stale_preliminary_as_gateway($age_seconds INT) PUBLIC {
     gateway_or_error();
 
