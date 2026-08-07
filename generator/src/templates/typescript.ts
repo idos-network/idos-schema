@@ -97,6 +97,38 @@ export function generateTypescript(methods: KwilAction[]) {
     ]
   });
 
+  // Blob-backed credential fields: schema CHECK requires content_size > 0 and
+  // actions validate content_uri via idos.validate_content_uri (ipfs://…).
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    declarations: [
+      {
+        name: "IPFS_URI_PREFIX",
+        initializer: `"ipfs://"`,
+      },
+    ],
+  });
+
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    declarations: [
+      {
+        name: "ipfsContentUriSchema",
+        initializer: `z.string().startsWith(IPFS_URI_PREFIX)`,
+      },
+    ],
+  });
+
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    declarations: [
+      {
+        name: "contentSizeSchema",
+        initializer: `z.number().int().positive()`,
+      },
+    ],
+  });
+
   sourceFile.addTypeAlias({
     isExported: true,
     name: "ActionSchemaElement",
@@ -174,10 +206,43 @@ export function generateTypescript(methods: KwilAction[]) {
     encryption_password_store: "z.ZodType<EncryptionPasswordStore>",
   }
 
+  function isContentUriField(name: string): boolean {
+    return name === "content_uri" || name.endsWith("_content_uri");
+  }
+
+  function isContentSizeField(name: string): boolean {
+    return name === "content_size" || name.endsWith("_content_size");
+  }
+
+  function zodSchemaForArg(arg: Value, refineBlobFields: boolean): string {
+    if (customZodDbMapping[arg.name]) {
+      return customZodDbMapping[arg.name];
+    }
+    // Only refine write-path (input) blob fields. Reads can return null content/content_uri/content_size.
+    if (refineBlobFields) {
+      if (isContentUriField(arg.name)) {
+        return "ipfsContentUriSchema";
+      }
+      if (isContentSizeField(arg.name)) {
+        return "contentSizeSchema";
+      }
+    }
+    return `z.${zodDbMapping[arg.type]}()`;
+  }
+
+  function zodTypeForArg(arg: Value): string {
+    if (customZodTypeMapping[arg.name]) {
+      return customZodTypeMapping[arg.name];
+    }
+    return `z.${zodTypeMapping[arg.type]}`;
+  }
+
   function generateZodType(name: string, args: Value[], {
     optionals = [],
+    refineBlobFields = false,
   }: {
     optionals?: string[],
+    refineBlobFields?: boolean,
   } = {}): string | undefined {
     if (args.length === 0) return;
 
@@ -196,11 +261,7 @@ export function generateTypescript(methods: KwilAction[]) {
                   writer.write("z.ZodNullable<");
                 }
 
-                if (customZodTypeMapping[arg.name]) {
-                  writer.write(`${customZodTypeMapping[arg.name]} `);
-                } else {
-                  writer.write(`z.${zodTypeMapping[arg.type]} `);
-                }
+                writer.write(`${zodTypeForArg(arg)} `);
 
                 if (optionals.includes(arg.name)) {
                   writer.write(">");
@@ -216,11 +277,7 @@ export function generateTypescript(methods: KwilAction[]) {
             writer.write(`z.object(`);
             writer.inlineBlock(() => {
               args.forEach(arg => {
-                let type = `z.${zodDbMapping[arg.type]}()`;
-
-                if (customZodDbMapping[arg.name]) {
-                  type = customZodDbMapping[arg.name];
-                }
+                const type = zodSchemaForArg(arg, refineBlobFields);
 
                 writer.write(`${arg.name}: ${type}`);
                 writer.conditionalWrite(optionals.includes(arg.name), () => ".nullable()");
@@ -256,6 +313,7 @@ export function generateTypescript(methods: KwilAction[]) {
         method.args,
         {
           optionals: method.generatorComments.paramOptional,
+          refineBlobFields: true,
         },
       );
     }

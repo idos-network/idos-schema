@@ -44,15 +44,50 @@ CREATE TABLE IF NOT EXISTS credentials (
     user_id UUID NOT NULL,
     verifiable_credential_id TEXT,
     public_notes TEXT NOT NULL,
-    content TEXT NOT NULL,
+    content TEXT,
+    content_uri TEXT,
+    content_size INT8 CHECK (content_size IS NULL OR content_size > 0),
     encryptor_public_key TEXT NOT NULL,
     issuer_auth_public_key TEXT NOT NULL,
-    inserter TEXT,
+    inserter_type TEXT,
+    inserter_id TEXT,
     issuer_fee NUMERIC(78,0) NOT NULL DEFAULT 0,
+    CHECK (content IS NOT NULL OR content_uri IS NOT NULL),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS credentials_user_id ON credentials(user_id);
 CREATE INDEX IF NOT EXISTS credentials_vc_id ON credentials(verifiable_credential_id);
+CREATE INDEX IF NOT EXISTS credentials_content_uri ON credentials(content_uri);
+
+CREATE TABLE IF NOT EXISTS preliminary_credentials (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    original_id UUID,
+    original_content_uri TEXT,
+    original_content_size INT8 CHECK (original_content_size IS NULL OR original_content_size > 0),
+    original_encryptor_public_key TEXT,
+    copy_id UUID,
+    copy_content_uri TEXT,
+    copy_content_size INT8 CHECK (copy_content_size IS NULL OR copy_content_size > 0),
+    copy_encryptor_public_key TEXT,
+    verifiable_credential_id TEXT,
+    content_hash TEXT,
+    public_notes TEXT,
+    issuer_auth_public_key TEXT NOT NULL,
+    grantee_wallet_identifier TEXT,
+    locked_until INT8,
+    original_id_for_copy UUID, -- it is needed for share_credential action
+    inserter_type TEXT NOT NULL,
+    inserter_id TEXT NOT NULL,
+    created_at INT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_user_id ON preliminary_credentials(user_id);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_original_id_copy_id ON preliminary_credentials(original_id, copy_id);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_copy_id ON preliminary_credentials(copy_id);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_original_content_uri ON preliminary_credentials(original_content_uri);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_copy_content_uri ON preliminary_credentials(copy_content_uri);
+CREATE INDEX IF NOT EXISTS preliminary_credentials_created_at ON preliminary_credentials(created_at);
 
 CREATE TABLE IF NOT EXISTS shared_credentials (
     original_id UUID NOT NULL,
@@ -62,6 +97,11 @@ CREATE TABLE IF NOT EXISTS shared_credentials (
     FOREIGN KEY (copy_id) REFERENCES credentials(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS shared_credentials_copy_id ON shared_credentials(copy_id);
+
+CREATE TABLE IF NOT EXISTS content_uris_to_delete (
+    content_uri TEXT PRIMARY KEY,
+    created_at INT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS user_attributes (
     id UUID PRIMARY KEY,
@@ -93,6 +133,10 @@ CREATE TABLE IF NOT EXISTS delegates (
     FOREIGN KEY (inserter_id) REFERENCES inserters(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS gateways (
+    address TEXT PRIMARY KEY -- identifier of a gateway caller
+);
+
 CREATE TABLE IF NOT EXISTS consumed_write_grants (
     id UUID PRIMARY KEY,
     owner_wallet_identifier TEXT NOT NULL, -- user wallet/pk
@@ -102,9 +146,7 @@ CREATE TABLE IF NOT EXISTS consumed_write_grants (
     copy_credential_id UUID,
     access_grant_timelock TEXT,
     not_usable_before TEXT,
-    not_usable_after TEXT,
-    FOREIGN KEY (original_credential_id) REFERENCES credentials(id) ON DELETE SET NULL,
-    FOREIGN KEY (copy_credential_id) REFERENCES credentials(id) ON DELETE SET NULL
+    not_usable_after TEXT
 );
 
 CREATE TABLE IF NOT EXISTS access_grants (
@@ -126,23 +168,49 @@ CREATE INDEX IF NOT EXISTS ag_owner_user_id ON access_grants(ag_owner_user_id);
 -- INSERTER AND DELEGATE ACTIONS
 
 -- @generator.description "Add inserter as owner"
+-- @generator.ignore
 CREATE OR REPLACE ACTION add_inserter_as_owner($id UUID, $name TEXT) OWNER PUBLIC {
     INSERT INTO inserters (id, name) VALUES ($id, $name);
 };
 
 -- @generator.description "Delete inserter as owner"
+-- @generator.ignore
 CREATE OR REPLACE ACTION delete_inserter_as_owner($id UUID) OWNER PUBLIC {
     DELETE FROM inserters WHERE id = $id;
 };
 
 -- @generator.description "Add a delegate as owner"
+-- @generator.ignore
 CREATE OR REPLACE ACTION add_delegate_as_owner($address TEXT, $inserter_id UUID) OWNER PUBLIC {
   INSERT INTO delegates (address, inserter_id) VALUES (lower($address), $inserter_id);
 };
 
 -- @generator.description "Delete a delegate from idOS"
+-- @generator.ignore
 CREATE OR REPLACE ACTION delete_delegate_as_owner($address TEXT) OWNER PUBLIC {
   DELETE FROM delegates WHERE address=$address;
+};
+
+
+-- GATEWAY ACTIONS
+
+-- @generator.description "Add a gateway as owner"
+-- @generator.ignore
+CREATE OR REPLACE ACTION add_gateway_as_owner($address TEXT) OWNER PUBLIC {
+    INSERT INTO gateways (address) VALUES (lower($address));
+};
+
+-- @generator.description "Delete a gateway as owner"
+-- @generator.ignore
+CREATE OR REPLACE ACTION delete_gateway_as_owner($address TEXT) OWNER PUBLIC {
+    DELETE FROM gateways WHERE address = lower($address);
+};
+
+CREATE OR REPLACE ACTION gateway_or_error() PRIVATE VIEW {
+    for $row in SELECT 1 FROM gateways WHERE address = @caller {
+        return;
+    }
+    error('Unauthorized gateway');
 };
 
 CREATE OR REPLACE ACTION get_inserter() PRIVATE VIEW RETURNS (name TEXT) {
@@ -353,92 +421,92 @@ CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
 
 -- CREDENTIAL ACTIONS
 
--- @generator.description "Add or update a credential in idOS on behalf of a user by permissioned profile creator (inserter) "
-CREATE OR REPLACE ACTION upsert_credential_as_inserter (
-    $id UUID,
-    $user_id UUID,
+-- @generator.description "Create a new preliminary credential"
+CREATE OR REPLACE ACTION create_preliminary_credential (
+    $request_id UUID,
+    $credential_id UUID,
     $issuer_auth_public_key TEXT,
     $encryptor_public_key TEXT,
-    $content TEXT,
+    $content_uri TEXT,
+    $content_size INT8,
+    $content_hash TEXT,
     $public_notes TEXT,
     $public_notes_signature TEXT,
     $broader_signature TEXT
 ) PUBLIC {
     capture_gas(0::NUMERIC(6,2));
 
-    $inserter := get_inserter(); -- throw an error if not authorized
+    if credential_id_in_use($credential_id) {
+        error('credential id already in use or reserved in a pending preliminary');
+    }
 
-    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
+    if $content_size is null OR $content_size <= 0 {
+        error('content size must be positive');
+    }
+
+    $content_uri_valid = idos.validate_content_uri($content_uri);
+    if !$content_uri_valid {
+        error('invalid content uri');
+    }
+
+    if content_uri_in_use($content_uri) {
+        error('content uri already in use');
+    }
+
+    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content_uri, $broader_signature);
     if !$result {
         error('signature is wrong');
     }
 
     $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
 
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
-    VALUES (
-        $id,
-        $user_id,
-        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
-        $public_notes,
-        $content,
-        $encryptor_public_key,
-        $issuer_auth_public_key,
-        $inserter
+    INSERT INTO preliminary_credentials (
+        id,
+        user_id,
+        original_id,
+        original_content_uri,
+        original_content_size,
+        original_encryptor_public_key,
+        verifiable_credential_id,
+        content_hash,
+        public_notes,
+        issuer_auth_public_key,
+        inserter_type,
+        inserter_id,
+        created_at
     )
-    ON CONFLICT(id) DO UPDATE
-    SET user_id=$user_id,
-        verifiable_credential_id=(CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END),
-        public_notes=$public_notes,
-        content=$content,
-        encryptor_public_key=$encryptor_public_key,
-        issuer_auth_public_key=$issuer_auth_public_key,
-        inserter=$inserter;
-};
-
--- @generator.description "Add a new credential"
-CREATE OR REPLACE ACTION add_credential (
-    $id UUID,
-    $issuer_auth_public_key TEXT,
-    $encryptor_public_key TEXT,
-    $content TEXT,
-    $public_notes TEXT,
-    $public_notes_signature TEXT,
-    $broader_signature TEXT
-) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
-
-    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
-    if !$result {
-        error('signature is wrong');
-    }
-
-    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
-
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key)
     VALUES (
-        $id,
+        $request_id,
         (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller)  OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = @caller)
-        ),
-        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
-        $public_notes,
-        $content,
+            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = @caller)),
+        $credential_id,
+        $content_uri,
+        $content_size,
         $encryptor_public_key,
-        $issuer_auth_public_key
+        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
+        $content_hash,
+        $public_notes,
+        $issuer_auth_public_key,
+        'user',
+        @caller,
+        @block_timestamp
     );
 };
 
--- @generator.returnOptional "original_id", "inserter"
+-- @generator.returnOptional "content_uri", "content_size", "original_id", "inserter_type", "inserter_id"
 CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
     public_notes TEXT,
+    content_uri TEXT,
+    content_size INT8,
     issuer_auth_public_key TEXT,
-    inserter TEXT,
+    inserter_type TEXT,
+    inserter_id TEXT,
     original_id UUID
 ) {
-    return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.issuer_auth_public_key, c.inserter, sc.original_id
+    return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.content_uri, c.content_size,
+            c.issuer_auth_public_key, c.inserter_type, c.inserter_id, sc.original_id
         FROM credentials AS c
         LEFT JOIN shared_credentials AS sc ON c.id = sc.copy_id
         INNER JOIN wallets ON c.user_id = wallets.user_id
@@ -452,17 +520,18 @@ CREATE OR REPLACE ACTION get_credentials() PUBLIC VIEW RETURNS table (
 };
 
 -- @generator.paramOptional "original_issuer_auth_public_key"
--- @generator.returnOptional "original_id", "inserter"
+-- @generator.returnOptional "original_id", "inserter_type", "inserter_id"
 CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $original_issuer_auth_public_key TEXT) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
     public_notes TEXT,
     encryptor_public_key TEXT,
     issuer_auth_public_key TEXT,
-    inserter TEXT,
+    inserter_type TEXT,
+    inserter_id TEXT,
     original_id UUID) {
     if $original_issuer_auth_public_key is null {
-      return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
+      return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter_type, c.inserter_id, sc.original_id AS original_id
           FROM credentials AS c
           INNER JOIN access_grants as ag ON c.id = ag.data_id
           INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
@@ -470,7 +539,7 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $original
           WHERE c.user_id = $user_id
               AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
     } else {
-        return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter, sc.original_id AS original_id
+        return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter_type, c.inserter_id, sc.original_id AS original_id
           FROM credentials AS c
           INNER JOIN access_grants as ag ON c.id = ag.data_id
           INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
@@ -481,50 +550,6 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $original
     }
 };
 
--- @generator.description "Edit a credential"
-CREATE OR REPLACE ACTION edit_credential (
-    $id UUID,
-    $public_notes TEXT,
-    $public_notes_signature TEXT,
-    $broader_signature TEXT,
-    $content TEXT,
-    $encryptor_public_key TEXT,
-    $issuer_auth_public_key TEXT
-) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
-
-    -- we forbid to edit a copy
-    -- only copies can have AGs, so data_id in AGs is id of a copy
-    for $row1 in SELECT 1 from access_grants WHERE data_id = $id {
-        error('can not edit shared credential');
-    }
-    -- if $id is shared_credentials.copy_id - it is a copy
-    for $row2 in SELECT 1 from credentials AS c
-                    INNER JOIN shared_credentials AS sc on c.id = sc.copy_id
-                    WHERE c.id = $id
-                    AND c.user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-                        OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = @caller)) {
-        error('can not edit shared credential');
-    }
-
-    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content, $broader_signature);
-    if !$result {
-        error('signature is wrong');
-    }
-
-    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
-
-    UPDATE credentials
-    SET public_notes=$public_notes,
-        verifiable_credential_id = (CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END),
-        content=$content,
-        encryptor_public_key=$encryptor_public_key,
-        issuer_auth_public_key=$issuer_auth_public_key
-    WHERE id=$id
-    AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-        OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = @caller)
-    );
-};
 
 -- Be aware that @caller here is ed25519 public key, hex encoded.
 -- All other @caller in the schema are either secp256k1 or nep413
@@ -549,6 +574,12 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
     if has_locked_access_grants($id) {
         error('there are locked access grants for this credential');
     }
+
+    INSERT INTO content_uris_to_delete (content_uri, created_at)
+        SELECT content_uri, @block_timestamp FROM credentials
+        WHERE id = $id AND content_uri IS NOT NULL
+        ON CONFLICT (content_uri) DO NOTHING;
+
     DELETE FROM credentials
     WHERE id=$id
     AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
@@ -575,18 +606,25 @@ CREATE OR REPLACE ACTION rescind_shared_credential($credential_id UUID) PUBLIC {
         error('can not find the credential shared to you');
     }
 
+    INSERT INTO content_uris_to_delete (content_uri, created_at)
+        SELECT content_uri, @block_timestamp FROM credentials
+        WHERE id = $credential_id AND content_uri IS NOT NULL
+        ON CONFLICT (content_uri) DO NOTHING;
+
     DELETE FROM credentials WHERE id = $credential_id;
     DELETE FROM access_grants WHERE data_id = $credential_id;
 };
 
 -- @generator.description "Share a credential with creating AG"
-CREATE OR REPLACE ACTION share_credential (
-    $id UUID,
-    $original_credential_id UUID,
+CREATE OR REPLACE ACTION share_preliminary_credential (
+    $request_id UUID,
+    $copy_id UUID,
+    $original_id UUID,
     $public_notes TEXT,
     $public_notes_signature TEXT,
     $broader_signature TEXT,
-    $content TEXT,
+    $content_uri TEXT,
+    $content_size INT8,
     $content_hash TEXT,
     $encryptor_public_key TEXT,
     $issuer_auth_public_key TEXT,
@@ -595,49 +633,95 @@ CREATE OR REPLACE ACTION share_credential (
 ) PUBLIC {
     capture_gas(0::NUMERIC(6,2));
 
-    if !credential_belongs_to_caller($original_credential_id) {
+    if !credential_belongs_to_caller($original_id) {
         error('original credential does not belong to the caller');
+    }
+
+
+    if credential_id_in_use($copy_id) {
+        error('copy credential id already in use or reserved in a pending preliminary');
+    }
+
+    if $content_size is null OR $content_size <= 0 {
+        error('content size must be positive');
+    }
+
+    $content_uri_valid = idos.validate_content_uri($content_uri);
+    if !$content_uri_valid {
+        error('invalid content uri');
+    }
+
+    if content_uri_in_use($content_uri) {
+        error('content uri already in use');
     }
 
     if $public_notes != '' {
         error('shared credentials cannot have public_notes, it must be an empty string');
     }
 
-    add_credential(
-        $id,
+    $result = idos.assert_credential_signatures(
         $issuer_auth_public_key,
-        $encryptor_public_key,
-        $content,
         $public_notes,
         $public_notes_signature,
+        $content_uri,
         $broader_signature
     );
-    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $id);
+    if !$result {
+        error('signature is wrong');
+    }
 
-    create_access_grant(
-        $grantee_wallet_identifier,
-        $id,
-        $locked_until::int,
+    INSERT INTO preliminary_credentials (
+        id,
+        user_id,
+        copy_id,
+        copy_content_uri,
+        copy_content_size,
+        copy_encryptor_public_key,
+        content_hash,
+        issuer_auth_public_key,
+        grantee_wallet_identifier,
+        locked_until,
+        original_id_for_copy,
+        inserter_type,
+        inserter_id,
+        created_at
+    )
+    VALUES (
+        $request_id,
+        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
+            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller) OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = @caller)),
+        $copy_id,
+        $content_uri,
+        $content_size,
+        $encryptor_public_key,
         $content_hash,
+        $issuer_auth_public_key,
+        $grantee_wallet_identifier,
+        $locked_until,
+        $original_id,
         'user',
-        @caller
+        @caller,
+        @block_timestamp
     );
 };
 
 -- Delegated write credential actions
 
 -- @generator.description "Add original credential and copy credential with AG on behalf of a user (using delegated write grant given by the user)"
-CREATE OR REPLACE ACTION create_credentials_by_dwg(
+CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
+    $request_id UUID,
     $issuer_auth_public_key TEXT,
     $original_encryptor_public_key TEXT,
-    $original_credential_id UUID,
-    $original_content TEXT,
+    $original_id UUID,
+    $original_content_uri TEXT,
+    $original_content_size INT8,
     $original_public_notes TEXT,
     $original_public_notes_signature TEXT,
     $original_broader_signature TEXT,
     $copy_encryptor_public_key TEXT,
-    $copy_credential_id UUID,
-    $copy_content TEXT,
+    $copy_id UUID,
+    $copy_content_uri TEXT,
+    $copy_content_size INT8,
     $copy_public_notes_signature TEXT,
     $copy_broader_signature TEXT,
     $content_hash TEXT, -- For access grant
@@ -650,9 +734,54 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
     $dwg_not_after TEXT,
     $dwg_signature TEXT) PUBLIC {
 
+    if $original_id = $copy_id {
+        error('the original id and copy id cannot be the same');
+    }
+
+    -- We will use the same ids for preliminary credentials as for credentials, so we need to check if they already exist
+    if credential_id_in_use($original_id) {
+        error('original credential id already in use or reserved in a pending preliminary');
+    }
+    if credential_id_in_use($copy_id) {
+        error('copy credential id already in use or reserved in a pending preliminary');
+    }
+
+    if $original_content_size is null OR $copy_content_size is null
+            OR $original_content_size <= 0 OR $copy_content_size <= 0 {
+        error('content size must be positive');
+    }
+
+    $original_uri_valid = idos.validate_content_uri($original_content_uri);
+    if !$original_uri_valid {
+        error('invalid original content uri');
+    }
+    $copy_uri_valid = idos.validate_content_uri($copy_content_uri);
+    if !$copy_uri_valid {
+        error('invalid copy content uri');
+    }
+
+    if $original_content_uri = $copy_content_uri {
+        error('original content uri and copy content uri must differ');
+    }
+
+    if content_uri_in_use($original_content_uri) {
+        error('original content uri already in use');
+    }
+    if content_uri_in_use($copy_content_uri) {
+        error('copy content uri already in use');
+    }
+
+    -- We capture gas upfront to prevent the real credential from being created if the gas is not enough
+    -- The gas can be refunded fully or partially
     capture_gas(0::NUMERIC(6,2));
 
-    -- Check the content creator (encryptor) of credentials is the issuer that user delegated to issue the credentials
+    -- Temporary: an issuer is not an inserter/caller. A user grants a DWG to an issuer_key;
+    -- the issuer must issue the credential and sign the proof with that same issuer_key.
+    -- Today we approximate "same issuer" via delegates sharing an inserter_id.
+    -- TODO: once the SDK distinguishes issuer_key from delegate_key, replace with:
+    --   if $issuer_auth_public_key != $dwg_issuer_public_key {
+    --       error('credentials issuer must be an issuer of delegated write grant');
+    --   }
     $the_same_issuer := false;
     for $row in SELECT 1 FROM delegates d1 INNER JOIN delegates d2 ON d1.inserter_id = d2.inserter_id
         WHERE d1.address = lower($issuer_auth_public_key) AND d2.address = lower($dwg_issuer_public_key) LIMIT 1 {
@@ -717,65 +846,70 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
         $issuer_auth_public_key,
         $original_public_notes,
         $original_public_notes_signature,
-        $original_content,
+        $original_content_uri,
         $original_broader_signature
     );
     if !$original_result {
         error('an original credential signature is wrong');
     }
 
-
     $copy_result = idos.assert_credential_signatures(
         $issuer_auth_public_key,
         '',
         $copy_public_notes_signature,
-        $copy_content,
+        $copy_content_uri,
         $copy_broader_signature
     );
     if !$copy_result {
         error('a copy credential signature is wrong');
     }
 
-
-    -- Insert original credential
     $verifiable_credential_id = idos.get_verifiable_credential_id($original_public_notes);
 
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
+    INSERT INTO preliminary_credentials (
+        id,
+        user_id,
+        original_id,
+        original_content_uri,
+        original_content_size,
+        original_encryptor_public_key,
+        copy_id,
+        copy_content_uri,
+        copy_content_size,
+        copy_encryptor_public_key,
+        verifiable_credential_id,
+        content_hash,
+        public_notes,
+        issuer_auth_public_key,
+        grantee_wallet_identifier,
+        locked_until,
+        original_id_for_copy,
+        inserter_type,
+        inserter_id,
+        created_at
+    )
     VALUES (
-        $original_credential_id,
+        $request_id,
         (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
             OR (wallet_type IN ('XRPL', 'Stellar') AND address = $dwg_owner) OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = $dwg_owner)),
-        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
-        $original_public_notes,
-        $original_content,
+        $original_id,
+        $original_content_uri,
+        $original_content_size,
         $original_encryptor_public_key,
-        $issuer_auth_public_key,
-        $dwg_id::TEXT
-    );
-
-    -- Insert copy credential
-    INSERT INTO credentials (id, user_id, verifiable_credential_id, public_notes, content, encryptor_public_key, issuer_auth_public_key, inserter)
-    VALUES (
-        $copy_credential_id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $dwg_owner) OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = $dwg_owner)),
-        NULL,
-        '',
-        $copy_content,
+        $copy_id,
+        $copy_content_uri,
+        $copy_content_size,
         $copy_encryptor_public_key,
-        $issuer_auth_public_key,
-        $dwg_id::TEXT
-    );
-
-    INSERT INTO shared_credentials (original_id, copy_id) VALUES ($original_credential_id, $copy_credential_id);
-
-    create_access_grant(
-        $dwg_grantee,
-        $copy_credential_id,
-        $ag_timelock,
+        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
         $content_hash,
-        'delegated_write_grant',
-        $dwg_id::TEXT
+        $original_public_notes,
+        $issuer_auth_public_key,
+        $dwg_grantee,
+        $ag_timelock,
+        $original_id,
+        'dwg',
+        $dwg_id::TEXT,
+        @block_timestamp
     );
 
     INSERT INTO consumed_write_grants (
@@ -793,12 +927,286 @@ CREATE OR REPLACE ACTION create_credentials_by_dwg(
         $dwg_owner,
         $dwg_grantee,
         $dwg_issuer_public_key,
-        $original_credential_id,
-        $copy_credential_id,
+        $original_id,
+        $copy_id,
         $dwg_access_grant_timelock,
         $dwg_not_before,
         $dwg_not_after
     );
+};
+
+-- @generator.ignore
+CREATE OR REPLACE ACTION get_preliminary_credential_as_gateway($id UUID) PUBLIC VIEW RETURNS (
+    id UUID,
+    original_id UUID,
+    original_content_uri TEXT,
+    original_content_size INT8,
+    copy_id UUID,
+    copy_content_uri TEXT,
+    copy_content_size INT8,
+    created_at INT
+) {
+    gateway_or_error();
+
+    return SELECT id, original_id, original_content_uri, original_content_size, copy_id,
+        copy_content_uri, copy_content_size, created_at
+        FROM preliminary_credentials WHERE id = $id;
+};
+
+-- @generator.ignore
+CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
+    $preliminary_original_id UUID,
+    $preliminary_copy_id UUID
+) PUBLIC {
+    gateway_or_error();
+
+    $preliminary_found := false;
+    $user_id UUID;
+    $preliminary_id UUID;
+    $original_content_uri TEXT;
+    $original_content_size INT8;
+    $original_encryptor_public_key TEXT;
+    $copy_content_uri TEXT;
+    $copy_content_size INT8;
+    $copy_encryptor_public_key TEXT;
+    $verifiable_credential_id TEXT;
+    $content_hash TEXT;
+    $public_notes TEXT;
+    $issuer_auth_public_key TEXT;
+    $grantee_wallet_identifier TEXT;
+    $locked_until INT8;
+    $original_id_for_copy UUID;
+    $inserter_type TEXT;
+    $inserter_id TEXT;
+
+    for $row in SELECT
+            id,
+            user_id,
+            original_content_uri,
+            original_content_size,
+            original_encryptor_public_key,
+            copy_content_uri,
+            copy_content_size,
+            copy_encryptor_public_key,
+            verifiable_credential_id,
+            content_hash,
+            public_notes,
+            issuer_auth_public_key,
+            grantee_wallet_identifier,
+            locked_until,
+            original_id_for_copy,
+            inserter_type,
+            inserter_id
+            FROM preliminary_credentials
+            WHERE (
+                original_id = $preliminary_original_id
+                OR (original_id IS NULL AND $preliminary_original_id IS NULL)
+            ) AND (
+                copy_id = $preliminary_copy_id
+                OR (copy_id IS NULL AND $preliminary_copy_id IS NULL)
+            ) {
+        $preliminary_found := true;
+        $preliminary_id := $row.id;
+        $user_id := $row.user_id;
+        $original_content_uri := $row.original_content_uri;
+        $original_content_size := $row.original_content_size;
+        $original_encryptor_public_key := $row.original_encryptor_public_key;
+        $copy_content_uri := $row.copy_content_uri;
+        $copy_content_size := $row.copy_content_size;
+        $copy_encryptor_public_key := $row.copy_encryptor_public_key;
+        $verifiable_credential_id := $row.verifiable_credential_id;
+        $content_hash := $row.content_hash;
+        $public_notes := $row.public_notes;
+        $issuer_auth_public_key := $row.issuer_auth_public_key;
+        $grantee_wallet_identifier := $row.grantee_wallet_identifier;
+        $locked_until := $row.locked_until;
+        $original_id_for_copy := $row.original_id_for_copy;
+        $inserter_type := $row.inserter_type;
+        $inserter_id := $row.inserter_id;
+        break;
+    }
+    if !$preliminary_found {
+        error('the preliminary record does not exist');
+    }
+
+    if $preliminary_original_id is not null
+        AND $preliminary_copy_id is not null
+        AND $original_id_for_copy != $preliminary_original_id {
+        error('the original_id_for_copy must be the same as the preliminary_original_id');
+    }
+
+    -- Insert original credential
+    if $preliminary_original_id is not null {
+        if $original_content_size is null OR $original_content_size <= 0 {
+            error('original content size must be positive');
+        }
+        if credential_exist($preliminary_original_id) {
+            error('the original credential already exists');
+        }
+        INSERT INTO credentials (
+            id,
+            user_id,
+            verifiable_credential_id,
+            public_notes,
+            content_uri,
+            content_size,
+            encryptor_public_key,
+            issuer_auth_public_key,
+            inserter_type,
+            inserter_id
+        )
+        VALUES (
+            $preliminary_original_id,
+            $user_id,
+            $verifiable_credential_id,
+            $public_notes,
+            $original_content_uri,
+            $original_content_size,
+            $original_encryptor_public_key,
+            $issuer_auth_public_key,
+            $inserter_type,
+            $inserter_id
+        );
+    }
+
+    -- Insert copy credential
+    if $preliminary_copy_id is not null {
+        if $copy_content_size is null OR $copy_content_size <= 0 {
+            error('copy content size must be positive');
+        }
+        if credential_exist($preliminary_copy_id) {
+            error('the copy credential already exists');
+        }
+        INSERT INTO credentials (
+            id,
+            user_id,
+            verifiable_credential_id,
+            public_notes,
+            content_uri,
+            content_size,
+            encryptor_public_key,
+            issuer_auth_public_key,
+            inserter_type,
+            inserter_id
+        )
+        VALUES (
+            $preliminary_copy_id,
+            $user_id,
+            NULL,
+            '',
+            $copy_content_uri,
+            $copy_content_size,
+            $copy_encryptor_public_key,
+            $issuer_auth_public_key,
+            $inserter_type,
+            $inserter_id
+        );
+
+        INSERT INTO shared_credentials (original_id, copy_id)
+            VALUES ($original_id_for_copy, $preliminary_copy_id);
+
+        create_access_grant(
+            $grantee_wallet_identifier,
+            $preliminary_copy_id,
+            $locked_until,
+            $content_hash,
+            $inserter_type,
+            $inserter_id
+        );
+    }
+
+    DELETE FROM preliminary_credentials WHERE id = $preliminary_id;
+};
+
+-- @generator.ignore
+CREATE OR REPLACE ACTION get_stale_preliminary_as_gateway($age_seconds INT) PUBLIC VIEW RETURNS table (
+    id UUID,
+    original_id UUID,
+    original_content_uri TEXT,
+    original_content_size INT8,
+    copy_id UUID,
+    copy_content_uri TEXT,
+    copy_content_size INT8,
+    created_at INT
+) {
+    gateway_or_error();
+
+    if $age_seconds is null or $age_seconds <= 0 {
+        error('age_seconds must be positive');
+    }
+
+    return SELECT id, original_id, original_content_uri, original_content_size, copy_id,
+        copy_content_uri, copy_content_size, created_at
+        FROM preliminary_credentials
+        WHERE (@block_timestamp - created_at) > $age_seconds;
+};
+
+-- `@generator.ignore`
+CREATE OR REPLACE ACTION delete_stale_preliminary_as_gateway($age_seconds INT) PUBLIC {
+    gateway_or_error();
+
+    if $age_seconds is null or $age_seconds <= 0 {
+        error('age_seconds must be positive');
+    }
+
+    INSERT INTO content_uris_to_delete (content_uri, created_at)
+        SELECT original_content_uri, @block_timestamp FROM preliminary_credentials
+        WHERE (@block_timestamp - created_at) > $age_seconds
+            AND original_content_uri IS NOT NULL
+        ON CONFLICT (content_uri) DO NOTHING;
+
+    INSERT INTO content_uris_to_delete (content_uri, created_at)
+        SELECT copy_content_uri, @block_timestamp FROM preliminary_credentials
+        WHERE (@block_timestamp - created_at) > $age_seconds
+            AND copy_content_uri IS NOT NULL
+        ON CONFLICT (content_uri) DO NOTHING;
+
+    DELETE FROM preliminary_credentials WHERE (@block_timestamp - created_at) > $age_seconds;
+};
+
+-- @generator.ignore
+CREATE OR REPLACE ACTION blob_deletion_queue_as_gateway() PUBLIC VIEW RETURNS table (
+    content_uri TEXT,
+    created_at INT
+) {
+    gateway_or_error();
+
+    return SELECT content_uri, created_at FROM content_uris_to_delete;
+};
+
+-- @generator.ignore
+CREATE OR REPLACE ACTION confirm_blob_deleted_as_gateway($content_uris TEXT[]) PUBLIC {
+    gateway_or_error();
+
+    FOR $uri IN ARRAY $content_uris {
+        DELETE FROM content_uris_to_delete WHERE content_uri = $uri;
+    }
+};
+
+-- @generator.ignore
+CREATE OR REPLACE ACTION authorize_blob_fetch_as_gateway(
+    $cid TEXT,
+    $wallet_identifier TEXT
+) PUBLIC VIEW RETURNS (authorized BOOL) {
+    gateway_or_error();
+
+    for $row in SELECT 1 FROM credentials AS c
+        INNER JOIN access_grants AS ag ON c.id = ag.data_id
+        WHERE c.content_uri = $cid
+            AND ag.ag_grantee_wallet_identifier = $wallet_identifier COLLATE NOCASE {
+
+        return true;
+    }
+
+    for $row in SELECT 1 FROM credentials WHERE content_uri = $cid
+        AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $wallet_identifier COLLATE NOCASE)
+            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $wallet_identifier)
+            OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = $wallet_identifier)) {
+
+        return true;
+    }
+
+    return false;
 };
 
 CREATE OR REPLACE ACTION credential_exist_as_inserter($id UUID) PUBLIC VIEW RETURNS (credential_exist BOOL) {
@@ -806,17 +1214,20 @@ CREATE OR REPLACE ACTION credential_exist_as_inserter($id UUID) PUBLIC VIEW RETU
     return credential_exist($id);
 };
 
--- @generator.returnOptional "inserter"
+-- @generator.returnOptional "content", "content_uri", "content_size", "inserter_type", "inserter_id"
 CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
     public_notes TEXT,
     content TEXT,
+    content_uri TEXT,
+    content_size INT8,
     encryptor_public_key TEXT,
     issuer_auth_public_key TEXT,
-    inserter TEXT
+    inserter_type TEXT,
+    inserter_id TEXT
 ) {
-    return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.content, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter
+    return SELECT DISTINCT c.id, c.user_id, c.public_notes, c.content, c.content_uri, c.content_size, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter_type, c.inserter_id
         FROM credentials AS c
         INNER JOIN wallets ON c.user_id = wallets.user_id
         WHERE c.id = $id
@@ -827,15 +1238,18 @@ CREATE OR REPLACE ACTION get_credential_owned ($id UUID) PUBLIC VIEW RETURNS tab
 };
 
 -- As a credential copy doesn't contain PUBLIC notes, we return respective original credential PUBLIC notes
--- @generator.returnOptional "inserter"
+-- @generator.returnOptional "content", "content_uri", "content_size", "inserter_type", "inserter_id"
 CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
     public_notes TEXT,
     content TEXT,
+    content_uri TEXT,
+    content_size INT8,
     encryptor_public_key TEXT,
     issuer_auth_public_key TEXT,
-    inserter TEXT
+    inserter_type TEXT,
+    inserter_id TEXT
 ) {
     if !credential_exist($id) {
         error('the credential does not exist');
@@ -852,12 +1266,12 @@ CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS ta
         error('the credential is not shared with the caller');
     }
 
-    return SELECT c.id, c.user_id, oc.public_notes, c.content, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter
+    return SELECT c.id, c.user_id, oc.public_notes, c.content, c.content_uri, c.content_size, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter_type, c.inserter_id
         FROM credentials AS c
         LEFT JOIN shared_credentials ON c.id = shared_credentials.copy_id
         LEFT JOIN credentials as oc ON shared_credentials.original_id = oc.id
         WHERE c.id = $id;
-    };
+};
 
 CREATE OR REPLACE ACTION get_sibling_credential_id ($content_hash TEXT) PUBLIC VIEW RETURNS (id UUID) {
     for $row in SELECT c.id FROM credentials as c INNER JOIN access_grants as ag ON c.id = ag.data_id
@@ -879,6 +1293,34 @@ CREATE OR REPLACE ACTION credential_belongs_to_caller($id UUID) PRIVATE VIEW RET
 
 CREATE OR REPLACE ACTION credential_exist($id UUID) PRIVATE VIEW RETURNS (credential_exist BOOL) {
     for $row in SELECT 1 FROM credentials WHERE id = $id {
+        return true;
+    }
+    return false;
+};
+
+CREATE OR REPLACE ACTION credential_id_in_use($id UUID) PRIVATE VIEW RETURNS (in_use BOOL) {
+    if credential_exist($id) {
+        return true;
+    }
+    for $row in SELECT 1 FROM preliminary_credentials
+        WHERE original_id = $id OR copy_id = $id {
+        return true;
+    }
+    return false;
+};
+
+CREATE OR REPLACE ACTION content_uri_in_use($uri TEXT) PRIVATE VIEW RETURNS (in_use BOOL) {
+    if $uri is null {
+        return false;
+    }
+    for $row in SELECT 1 FROM credentials WHERE content_uri = $uri {
+        return true;
+    }
+    for $row in SELECT 1 FROM preliminary_credentials
+        WHERE original_content_uri = $uri OR copy_content_uri = $uri {
+        return true;
+    }
+    for $row in SELECT 1 FROM content_uris_to_delete WHERE content_uri = $uri {
         return true;
     }
     return false;
@@ -1128,88 +1570,6 @@ CREATE OR REPLACE ACTION has_locked_access_grants($id UUID) PUBLIC VIEW RETURNS 
     }
 
     return false;
-};
-
-CREATE OR REPLACE ACTION dag_message(
-    $dag_owner_wallet_identifier TEXT,
-    $dag_grantee_wallet_identifier TEXT,
-    $dag_data_id UUID,
-    $dag_locked_until INT,
-    $dag_content_hash TEXT
-) PUBLIC VIEW returns (message TEXT) {
-    return idos.dag_message(
-        $dag_owner_wallet_identifier,
-        $dag_grantee_wallet_identifier,
-        $dag_data_id::TEXT,
-        $dag_locked_until,
-        $dag_content_hash
-    );
-};
-
--- @generator.description "Create an Access Grant in idOS"
-CREATE OR REPLACE ACTION create_ag_by_dag_for_copy(
-    $dag_owner_wallet_identifier TEXT,
-    $dag_grantee_wallet_identifier TEXT,
-    $dag_data_id UUID,
-    $dag_locked_until INT,
-    $dag_content_hash TEXT,
-    $dag_signature TEXT
-) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
-
-    -- Get the wallet type and public key for XRPL/NEAR wallets from database
-    $dag_owner_found bool := false;
-    $dag_owner_wallet_type string := '';
-    $dag_owner_public_key string := '';
-    for $wallet in SELECT wallet_type, public_key FROM wallets WHERE (wallet_type = 'EVM' AND address = $dag_owner_wallet_identifier COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $dag_owner_wallet_identifier)
-            OR (wallet_type IN ('NEAR', 'FaceSign') AND public_key = $dag_owner_wallet_identifier) {
-        $dag_owner_found := true;
-        $dag_owner_wallet_type := $wallet.wallet_type;
-        $dag_owner_public_key := $wallet.public_key;
-        break;
-    }
-    if !$dag_owner_found {
-        error('dag_owner not found');
-    }
-
-    -- This works for EVM-compatible signatures only
-    $owner_verified = idos.verify_owner(
-        $dag_owner_wallet_identifier,
-        $dag_owner_wallet_type,
-        $dag_owner_public_key,
-        $dag_grantee_wallet_identifier,
-        $dag_data_id::TEXT,
-        $dag_locked_until,
-        $dag_content_hash,
-        $dag_signature
-    );
-    if !$owner_verified {
-        error('the dag_signature is invalid');
-    }
-
-    $data_id_belongs_to_owner bool := false;
-    for $row in SELECT 1 from credentials
-            INNER JOIN wallets ON credentials.user_id = wallets.user_id
-            WHERE credentials.id = $dag_data_id
-            AND ((wallets.wallet_type = 'EVM' AND wallets.address = $dag_owner_wallet_identifier COLLATE NOCASE)
-                OR (wallets.wallet_type IN ('XRPL', 'Stellar') AND wallets.address = $dag_owner_wallet_identifier)
-                OR (wallets.wallet_type IN ('NEAR', 'FaceSign') AND wallets.public_key = $dag_owner_wallet_identifier)) {
-        $data_id_belongs_to_owner := true;
-        break;
-    }
-    if !$data_id_belongs_to_owner {
-        error('the data_id does not belong to the owner');
-    }
-
-    create_access_grant(
-        $dag_grantee_wallet_identifier,
-        $dag_data_id,
-        $dag_locked_until::int,
-        $dag_content_hash,
-        'dag_message',
-        @caller
-    );
 };
 
 -- @generator.description "Create a new access grant"
