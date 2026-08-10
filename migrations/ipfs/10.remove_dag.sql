@@ -1,1 +1,0 @@
-DROP ACTION IF EXISTS dag_message;
