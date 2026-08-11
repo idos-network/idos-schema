@@ -13,7 +13,7 @@ USE IF NOT EXISTS idos AS idos;
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
     recipient_encryption_public_key TEXT NOT NULL,
-    encryption_password_store TEXT NOT NULL CHECK (encryption_password_store IN ('user', 'mpc')),
+    encryption_password_store TEXT NOT NULL CHECK (encryption_password_store IN ('user', 'mpc', 'mm')),
     inserter TEXT NOT NULL,
     gas_allowance NUMERIC(78,0) NOT NULL DEFAULT '100000000000000000000'::NUMERIC(78,0) -- 100 * 10^18
 );
