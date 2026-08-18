@@ -421,10 +421,10 @@ CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
     for $row in SELECT id FROM wallets
         WHERE id = $id
         AND user_id = $caller_user_id
-        AND EXISTS (
-            SELECT count(id) FROM wallets
-                WHERE user_id = $caller_user_id
-                GROUP BY user_id HAVING count(id) = 1
+        AND (
+            (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
+            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller)
+            OR (wallet_type IN ('NEAR', 'FaceSign', 'MM') AND public_key = @caller)
         ) {
         error('You can not delete a wallet you are connected with. To delete this wallet you have to connect other wallet.');
     }
