@@ -235,10 +235,14 @@ CREATE OR REPLACE ACTION get_inserter_or_null() PRIVATE VIEW RETURNS (name TEXT)
 };
 
 CREATE OR REPLACE ACTION caller_user_id() PRIVATE VIEW RETURNS (user_id UUID) {
+    return user_id_for_wallet_address(@caller);
+};
+
+CREATE OR REPLACE ACTION user_id_for_wallet_address($address TEXT) PRIVATE VIEW RETURNS (user_id UUID) {
     for $row in SELECT DISTINCT user_id FROM wallets
-        WHERE (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller)
-            OR (wallet_type IN ('NEAR', 'FaceSign', 'MM') AND public_key = @caller) {
+        WHERE (wallet_type = 'EVM' AND address = $address COLLATE NOCASE)
+            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $address)
+            OR (wallet_type IN ('NEAR', 'FaceSign', 'MM') AND public_key = $address) {
         return $row.user_id;
     }
     return null;
@@ -1777,11 +1781,7 @@ CREATE OR REPLACE ACTION get_access_grants_for_credential($credential_id UUID) P
 -- Should we improve it to work with near wallets too?
 -- @generator.notAuthorized
 CREATE OR REPLACE ACTION has_profile($address TEXT) PUBLIC VIEW returns (has_profile BOOL) {
-    for $row in SELECT 1 FROM wallets WHERE address=$address COLLATE NOCASE {
-        return true;
-    }
-
-    return false;
+    return user_id_for_wallet_address($address) is not null;
 };
 -- GAS AND FEES
 
