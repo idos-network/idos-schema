@@ -1301,15 +1301,26 @@ CREATE OR REPLACE ACTION has_profile($address TEXT) PUBLIC VIEW returns (has_pro
 };
 -- GAS AND FEES
 
+CREATE OR REPLACE ACTION is_evm_address($address TEXT) PUBLIC VIEW RETURNS (is_evm_address BOOL) {
+    IF $address IS NULL { RETURN false; }
+    IF length($address) != 42 { RETURN false; }
+    IF substring($address, 1, 2) != '0x' { RETURN false; }
+
+    $body := lower(substring($address, 3, 40));
+    IF ltrim($body, '0123456789abcdef') != '' { RETURN false; }
+
+    RETURN encode(decode($body, 'hex'), 'hex') = $body;
+};
+
 CREATE OR REPLACE ACTION set_caller_payer($address TEXT) PUBLIC {
-    IF NOT idos.is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
+    IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
     capture_gas(0.01::NUMERIC(6,2));
 
     INSERT INTO caller_payers(address, payer) VALUES ($address, lower(@caller)) ON CONFLICT DO NOTHING;
 };
 
 CREATE OR REPLACE ACTION check_caller_payer($address TEXT) PUBLIC VIEW RETURNS (is_payer BOOL) {
-    IF NOT idos.is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
+    IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
 
     FOR $row in SELECT 1 FROM caller_payers WHERE address = $address AND payer = lower(@caller) {
         RETURN true;
@@ -1318,7 +1329,7 @@ CREATE OR REPLACE ACTION check_caller_payer($address TEXT) PUBLIC VIEW RETURNS (
 };
 
 CREATE OR REPLACE ACTION unset_caller_payer($address TEXT) PUBLIC {
-    IF NOT idos.is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
+    IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
     capture_gas(0.01::NUMERIC(6,2));
 
     DELETE FROM caller_payers WHERE address = $address AND payer = lower(@caller);
@@ -1346,7 +1357,7 @@ CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT, $minimum_balance N
 
     $evm_addresses TEXT[];
     IF !has_profile(@caller) {
-        if idos.is_evm_address(@caller) {
+        if is_evm_address(@caller) {
             $evm_addresses = array_append($evm_addresses, @caller);
         } else {
             FOR $row IN SELECT payer FROM caller_payers WHERE address = @caller {
@@ -1373,21 +1384,43 @@ CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT, $minimum_balance N
     return null;
 };
 
+CREATE OR REPLACE ACTION get_owned_wallet_with_balance($token TEXT, $minimum_balance NUMERIC(78,0)) PRIVATE VIEW RETURNS (wallet_address TEXT) {
+    IF $token IS NULL { ERROR('invalid token'); }
+    IF $token != 'IDOS' AND $token != 'USDC' { ERROR('invalid token'); }
+    IF $minimum_balance IS NULL { ERROR('minimum balance is required'); }
+    IF $minimum_balance < 0::NUMERIC(78,0) { ERROR('minimum balance cannot be negative'); }
+
+    $evm_addresses TEXT[];
+    IF is_evm_address(@caller) {
+        $evm_addresses = array_append($evm_addresses, @caller);
+    }
+
+    FOR $row IN get_wallets() {
+        IF $row.wallet_type == 'EVM' {
+            $evm_addresses = array_append($evm_addresses, $row.address);
+        }
+    }
+
+    $balance NUMERIC(78,0);
+    FOR $address IN ARRAY $evm_addresses {
+        $balance = check_balance($address, $token);
+
+        IF $balance >= $minimum_balance {
+            RETURN $address;
+        }
+    }
+
+    RETURN null;
+};
+
 -- @generator.description "Request a withdrawal of all tokens from idOS to user's EVM wallet"
 CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
     capture_gas(0::NUMERIC(6,2));
 
-    $evm_address := get_wallet_with_balance($token, 1::NUMERIC(78,0));
+    $evm_address := get_owned_wallet_with_balance($token, 1::NUMERIC(78,0));
     if $evm_address is null {
-        RETURN;
+        ERROR('no wallet with balance found');
     }
-
-    -- This can be "abused" by a non-EVM address that has a payer to have their tokens
-    -- taken out of the network. However, that address can also just spend them with
-    -- stupid actions anyway. Because giving control of your address as a payer is already
-    -- dangerous, pkoch didn't think this to be particularly threatening.
-    -- However, it can be argued that only an address holder (@caller or user waller) should
-    -- be able to take their tokens out of the network.
     $balance := check_balance($evm_address, $token);
 
     -- we use lock_admin()+issue() because bridge() is tied to @caller
