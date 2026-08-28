@@ -1338,7 +1338,12 @@ CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW R
     RETURN $balance;
 };
 
-CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURNS (wallet_address TEXT) {
+CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT, $minimum_balance NUMERIC(78,0)) PUBLIC VIEW RETURNS (wallet_address TEXT) {
+    IF $token IS NULL { ERROR('invalid token'); }
+    IF $token != 'IDOS' AND $token != 'USDC' { ERROR('invalid token'); }
+    IF $minimum_balance IS NULL { ERROR('minimum balance is required'); }
+    IF $minimum_balance < 0::NUMERIC(78,0) { ERROR('minimum balance cannot be negative'); }
+
     $evm_addresses TEXT[];
     IF !has_profile(@caller) {
         if idos.is_evm_address(@caller) {
@@ -1358,15 +1363,9 @@ CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURN
 
     $balance NUMERIC(78,0);
     FOR $address IN ARRAY $evm_addresses {
-        IF $token == 'IDOS' {
-            $balance = idos_token_bridge.balance($address);
-        } ELSE IF $token == 'USDC' {
-            $balance = usdc_token_bridge.balance($address);
-        } ELSE {
-            ERROR('invalid token');
-        }
+        $balance = check_balance($address, $token);
 
-        IF $balance > 0::NUMERIC(78,0) {
+        IF $balance >= $minimum_balance {
             RETURN $address;
         }
     }
@@ -1378,9 +1377,9 @@ CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURN
 CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
     capture_gas(0::NUMERIC(6,2));
 
-    $evm_address := get_wallet_with_balance($token);
+    $evm_address := get_wallet_with_balance($token, 1::NUMERIC(78,0));
     if $evm_address is null {
-        ERROR('no wallet with balance found');
+        RETURN;
     }
 
     -- This can be "abused" by a non-EVM address that has a payer to have their tokens
@@ -1430,7 +1429,11 @@ CREATE OR REPLACE ACTION update_allowance($amount NUMERIC(78,0)) PRIVATE {
 
 -- @generator.description "Capture gas cost from the caller"
 CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
+    IF $amount_human IS NULL { ERROR('amount is required'); }
+    IF $amount_human < 0::NUMERIC(6,2) { ERROR('amount cannot be negative'); }
+
     $amount := from_human_units($amount_human);
+    IF $amount == 0::NUMERIC(78,0) { RETURN; }
 
     IF has_profile(@caller) {
         $allowance NUMERIC(78,0) := get_allowance();
@@ -1440,13 +1443,13 @@ CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
         $amount = greatest($amount - $allowance, 0::NUMERIC(78,0));
     }
 
-    IF $amount > 0::NUMERIC(78,0) {
-        $evm_address := get_wallet_with_balance('IDOS');
-        if $evm_address is null {
-            ERROR('no wallet with balance found');
-        }
-        idos_token_bridge.lock_admin($evm_address, $amount);
+    IF $amount == 0::NUMERIC(78,0) { RETURN; }
+
+    $evm_address := get_wallet_with_balance('IDOS', $amount);
+    if $evm_address is null {
+        ERROR('no wallet with balance found');
     }
+    idos_token_bridge.lock_admin($evm_address, $amount);
 };
 
 -- @generator.description "Get cost of action for 1.2 gas"
@@ -1456,14 +1459,16 @@ CREATE OR REPLACE ACTION action_costing_gas() PUBLIC {
 
 -- @generator.description "Action that captures IDOS tokens from the caller"
 CREATE OR REPLACE ACTION action_costing_idos_token($amount NUMERIC(78,0)) PUBLIC {
-    $evm_address := get_wallet_with_balance('IDOS');
+    IF $amount IS NULL { ERROR('amount is required'); }
+    IF $amount < 0::NUMERIC(78,0) { ERROR('amount cannot be negative'); }
+    IF $amount == 0::NUMERIC(78,0) { RETURN; }
+
+    $evm_address := get_wallet_with_balance('IDOS', $amount);
     if $evm_address is null {
         ERROR('no wallet with balance found');
     }
 
-    IF $amount > 0::NUMERIC(78,0) {
-        idos_token_bridge.lock_admin($evm_address, $amount);
-    }
+    idos_token_bridge.lock_admin($evm_address, $amount);
 };
 
 CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS (issuer_fee NUMERIC(78,0)) {
@@ -1476,13 +1481,16 @@ CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS
 
 -- @generator.description "Capture fee from the credentials"
 CREATE OR REPLACE ACTION capture_fee($credential_id UUID) PRIVATE {
-    $evm_address := get_wallet_with_balance('USDC');
+    $fee := get_issuer_fee($credential_id);
+    IF $fee < 0::NUMERIC(78,0) { ERROR('amount cannot be negative'); }
+
+    $amount := ($fee * 125::NUMERIC(78,0)) / 100::NUMERIC(78,0);
+    IF $amount == 0::NUMERIC(78,0) { RETURN; }
+
+    $evm_address := get_wallet_with_balance('USDC', $amount);
     if $evm_address is null {
         ERROR('no wallet with balance found');
     }
-
-    $fee := get_issuer_fee($credential_id);
-    $amount := ($fee * 125)::NUMERIC(78,0) / 100::NUMERIC(78,0);
 
     usdc_token_bridge.lock_admin($evm_address, $amount);
 };
@@ -1496,9 +1504,11 @@ CREATE OR REPLACE ACTION action_costing_fee($credential_id UUID) PUBLIC {
 CREATE OR REPLACE ACTION request_balance_withdrawal($token TEXT, $evm_address_to TEXT) OWNER PUBLIC {
     IF $token == 'IDOS' {
         _, _, _, _, _, $balance, _, _, _ := idos_token_bridge.info();
+        IF $balance == 0::NUMERIC(78,0) { RETURN; }
         idos_token_bridge.issue($evm_address_to, $balance);
     } ELSE IF $token == 'USDC' {
         _, _, _, _, _, $balance, _, _, _ := usdc_token_bridge.info();
+        IF $balance == 0::NUMERIC(78,0) { RETURN; }
         usdc_token_bridge.issue($evm_address_to, $balance);
     } ELSE {
         ERROR('invalid token');
