@@ -39,6 +39,20 @@ CREATE INDEX IF NOT EXISTS wallets_user_id ON wallets(user_id);
 CREATE INDEX IF NOT EXISTS wallets_address_scan ON wallets(address, wallet_type);
 CREATE INDEX IF NOT EXISTS wallets_public_key_scan ON wallets(public_key, wallet_type);
 
+CREATE TABLE IF NOT EXISTS caller_payers (
+    address TEXT CHECK (
+        length(address) != 42
+        OR lower(substring(address, 1, 2)) != '0x' -- Can't be an EVM-shaped address
+    ),
+    payer   TEXT CHECK (
+        payer = lower(payer) -- Canonicalize as lower
+        AND length(payer) = 42
+        AND substring(payer, 1, 2) = '0x'
+        AND encode(decode(substring(payer, 3, 40), 'hex'), 'hex') = substring(payer, 3, 40)
+    ),
+    PRIMARY KEY (address, payer)
+);
+
 CREATE TABLE IF NOT EXISTS credentials (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL,
@@ -1287,6 +1301,29 @@ CREATE OR REPLACE ACTION has_profile($address TEXT) PUBLIC VIEW returns (has_pro
 };
 -- GAS AND FEES
 
+CREATE OR REPLACE ACTION set_caller_payer($address TEXT) PUBLIC {
+    IF NOT idos.is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
+    capture_gas(0.01::NUMERIC(6,2));
+
+    INSERT INTO caller_payers(address, payer) VALUES ($address, lower(@caller)) ON CONFLICT DO NOTHING;
+};
+
+CREATE OR REPLACE ACTION check_caller_payer($address TEXT) PUBLIC VIEW RETURNS (is_payer BOOL) {
+    IF NOT idos.is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
+
+    FOR $row in SELECT 1 FROM caller_payers WHERE address = $address AND payer = lower(@caller) {
+        RETURN true;
+    }
+    RETURN false;
+};
+
+CREATE OR REPLACE ACTION unset_caller_payer($address TEXT) PUBLIC {
+    IF NOT idos.is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
+    capture_gas(0.01::NUMERIC(6,2));
+
+    DELETE FROM caller_payers WHERE address = $address AND payer = lower(@caller);
+};
+
 CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW RETURNS (balance NUMERIC(78,0)) {
     $balance NUMERIC(78,0);
 
@@ -1304,9 +1341,13 @@ CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW R
 CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURNS (wallet_address TEXT) {
     $evm_addresses TEXT[];
     IF !has_profile(@caller) {
-        -- even if the @caller is not EVM address, there is no harm to try to get the balance, it will return nothing
-        -- because bridge.balance can only have records with EVM addresses (it is filled from EVM-compatible contract events)
-        $evm_addresses = array_append($evm_addresses, @caller);
+        if idos.is_evm_address(@caller) {
+            $evm_addresses = array_append($evm_addresses, @caller);
+        } else {
+            FOR $row IN SELECT payer FROM caller_payers WHERE address = @caller {
+                $evm_addresses = array_append($evm_addresses, $row.payer);
+            }
+        }
     } ELSE {
         FOR $row IN get_wallets() {
             IF $row.wallet_type == 'EVM' {
@@ -1342,6 +1383,12 @@ CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
         ERROR('no wallet with balance found');
     }
 
+    -- This can be "abused" by a non-EVM address that has a payer to have their tokens
+    -- taken out of the network. However, that address can also just spend them with
+    -- stupid actions anyway. Because giving control of your address as a payer is already
+    -- dangerous, pkoch didn't think this to be particularly threatening.
+    -- However, it can be argued that only an address holder (@caller or user waller) should
+    -- be able to take their tokens out of the network.
     $balance := check_balance($evm_address, $token);
 
     -- we use lock_admin()+issue() because bridge() is tied to @caller
