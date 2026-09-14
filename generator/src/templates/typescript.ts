@@ -74,7 +74,7 @@ export function generateTypescript(methods: KwilAction[]) {
     declarations: [
       {
         name: "ENCRYPTION_PASSWORD_STORES",
-        initializer: `['user', 'mpc'] as const`,
+        initializer: `['user', 'mpc', 'mm'] as const`,
       }
     ]
   })
