@@ -15,4 +15,7 @@ timelock
 xrpl
 arbitrumsepolia
 GCFXQ
+fkey
+ipfs
 pkoch
+ukyc
