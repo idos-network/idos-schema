@@ -40,6 +40,20 @@ CREATE INDEX IF NOT EXISTS wallets_user_id ON wallets(user_id);
 CREATE INDEX IF NOT EXISTS wallets_address_scan ON wallets(address, wallet_type);
 CREATE INDEX IF NOT EXISTS wallets_public_key_scan ON wallets(public_key, wallet_type);
 
+CREATE TABLE IF NOT EXISTS caller_payers (
+    address TEXT CHECK (
+        length(address) != 42
+        OR lower(substring(address, 1, 2)) != '0x' -- Can't be an EVM-shaped address
+    ),
+    payer   TEXT CHECK (
+        payer = lower(payer) -- Canonicalize as lower
+        AND length(payer) = 42
+        AND substring(payer, 1, 2) = '0x'
+        AND encode(decode(substring(payer, 3, 40), 'hex'), 'hex') = substring(payer, 3, 40)
+    ),
+    PRIMARY KEY (address, payer)
+);
+
 CREATE TABLE IF NOT EXISTS credentials (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL,
@@ -253,7 +267,7 @@ CREATE OR REPLACE ACTION user_id_for_wallet_address($address TEXT) PRIVATE VIEW 
 
 -- @generator.description "Add a user to idOS"
 CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     $inserter := get_inserter();
     INSERT INTO users (id, recipient_encryption_public_key, encryption_password_store, inserter)
@@ -262,7 +276,7 @@ CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_pu
 
 -- @generator.description "Update user's encryption key and password store in idOS as inserter (profile creator)"
 CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     get_inserter();
     UPDATE users SET recipient_encryption_public_key=$recipient_encryption_public_key, encryption_password_store=$encryption_password_store
@@ -303,7 +317,7 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $message TEXT,
     $signature TEXT
 ) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'FaceSign' AND $wallet_type != 'MM' {
         error('unsupported wallet type');
@@ -349,7 +363,7 @@ CREATE OR REPLACE ACTION add_wallet(
     $message TEXT,
     $signature TEXT
 ) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     if @authenticator = 'mm_token' {
         error('mm_token callers cannot add wallets');
@@ -415,7 +429,7 @@ CREATE OR REPLACE ACTION get_wallets() PUBLIC VIEW RETURNS table (
 
 -- @generator.description "Remove a wallet from idOS"
 CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     if @authenticator = 'mm_token' {
         error('mm_token callers cannot remove wallets');
@@ -453,7 +467,7 @@ CREATE OR REPLACE ACTION create_preliminary_credential (
     $public_notes_signature TEXT,
     $broader_signature TEXT
 ) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     if credential_id_in_use($credential_id) {
         error('credential id already in use or reserved in a pending preliminary');
@@ -570,7 +584,7 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $original
 -- This action can't be called by kwil-cli (as kwil-cli uses secp256k1 only)
 -- @generator.description "Edit public notes in a credential as issuer"
 CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $public_notes TEXT) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     UPDATE credentials SET public_notes = $public_notes
     WHERE issuer_auth_public_key = @caller
@@ -579,7 +593,7 @@ CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $pub
 
 -- @generator.description "Remove a credential from your idOS profile"
 CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     if !credential_belongs_to_caller($id) {
         error('the credential does not belong to the caller');
@@ -630,7 +644,7 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
 
 -- @generator.description "Rescind a shared credential as a grantee"
 CREATE OR REPLACE ACTION rescind_shared_credential($credential_id UUID) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     $credential_found := false;
     for $row in SELECT 1 FROM credentials AS c
@@ -695,7 +709,7 @@ CREATE OR REPLACE ACTION share_preliminary_credential (
     $grantee_wallet_identifier TEXT,
     $locked_until INT8
 ) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     if !credential_belongs_to_caller($original_id) {
         error('original credential does not belong to the caller');
@@ -845,7 +859,7 @@ CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
 
     -- We capture gas upfront to prevent the real credential from being created if the gas is not enough
     -- The gas can be refunded fully or partially
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     -- Temporary: an issuer is not an inserter/caller. A user grants a DWG to an issuer_key;
     -- the issuer must issue the credential and sign the proof with that same issuer_key.
@@ -1482,7 +1496,7 @@ CREATE OR REPLACE ACTION assert_content_uri_for_authenticator($uri TEXT) PRIVATE
 
 -- @generator.description "Add a new attribute as inserter"
 CREATE OR REPLACE ACTION add_attribute_as_inserter($id UUID, $user_id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     $inserter := get_inserter();
     INSERT INTO user_attributes (id, user_id, attribute_key, value, inserter)
@@ -1491,7 +1505,7 @@ CREATE OR REPLACE ACTION add_attribute_as_inserter($id UUID, $user_id UUID, $att
 
 -- @generator.description  "Create a new attribute in your idOS profile"
 CREATE OR REPLACE ACTION add_attribute($id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     $caller_user_id := caller_user_id();
     INSERT INTO user_attributes (id, user_id, attribute_key, value)
@@ -1519,7 +1533,7 @@ CREATE OR REPLACE ACTION get_attributes() PUBLIC VIEW returns table (
 
 -- @generator.description "Edit an existing attribute"
 CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     $caller_user_id := caller_user_id();
     for $row in SELECT 1 FROM user_attributes AS ha
@@ -1537,7 +1551,7 @@ CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TE
 
 -- @generator.description "Remove an existing attribute"
 CREATE OR REPLACE ACTION remove_attribute($id UUID) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     $caller_user_id := caller_user_id();
     DELETE FROM user_attributes
@@ -1547,7 +1561,7 @@ CREATE OR REPLACE ACTION remove_attribute($id UUID) PUBLIC {
 
 -- @generator.description "Share an attribute"
 CREATE OR REPLACE ACTION share_attribute($id UUID, $original_attribute_id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     $caller_user_id := caller_user_id();
     INSERT INTO user_attributes (id, user_id, attribute_key, value)
@@ -1598,7 +1612,7 @@ CREATE OR REPLACE ACTION dwg_message(
 
 -- @generator.description "Revoke an Access Grant from idOS"
 CREATE OR REPLACE ACTION revoke_access_grant ($id UUID) PUBLIC {
-    capture_gas(0::NUMERIC(6,2));
+    capture_gas(0.01::NUMERIC(6,2));
 
     $caller_user_id := caller_user_id();
     $ag_exist := false;
@@ -1785,6 +1799,40 @@ CREATE OR REPLACE ACTION has_profile($address TEXT) PUBLIC VIEW returns (has_pro
 };
 -- GAS AND FEES
 
+CREATE OR REPLACE ACTION is_evm_address($address TEXT) PUBLIC VIEW RETURNS (is_evm_address BOOL) {
+    IF $address IS NULL { RETURN false; }
+    IF length($address) != 42 { RETURN false; }
+    IF substring($address, 1, 2) != '0x' { RETURN false; }
+
+    $body := lower(substring($address, 3, 40));
+    IF ltrim($body, '0123456789abcdef') != '' { RETURN false; }
+
+    RETURN encode(decode($body, 'hex'), 'hex') = $body;
+};
+
+CREATE OR REPLACE ACTION set_caller_payer($address TEXT) PUBLIC {
+    IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
+    capture_gas(0.01::NUMERIC(6,2));
+
+    INSERT INTO caller_payers(address, payer) VALUES ($address, lower(@caller)) ON CONFLICT DO NOTHING;
+};
+
+CREATE OR REPLACE ACTION check_caller_payer($address TEXT) PUBLIC VIEW RETURNS (is_payer BOOL) {
+    IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
+
+    FOR $row in SELECT 1 FROM caller_payers WHERE address = $address AND payer = lower(@caller) {
+        RETURN true;
+    }
+    RETURN false;
+};
+
+CREATE OR REPLACE ACTION unset_caller_payer($address TEXT) PUBLIC {
+    IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
+    capture_gas(0.01::NUMERIC(6,2));
+
+    DELETE FROM caller_payers WHERE address = $address AND payer = lower(@caller);
+};
+
 CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW RETURNS (balance NUMERIC(78,0)) {
     $balance NUMERIC(78,0);
 
@@ -1799,12 +1847,21 @@ CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW R
     RETURN $balance;
 };
 
-CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURNS (wallet_address TEXT) {
+CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT, $minimum_balance NUMERIC(78,0)) PUBLIC VIEW RETURNS (wallet_address TEXT) {
+    IF $token IS NULL { ERROR('invalid token'); }
+    IF $token != 'IDOS' AND $token != 'USDC' { ERROR('invalid token'); }
+    IF $minimum_balance IS NULL { ERROR('minimum balance is required'); }
+    IF $minimum_balance < 0::NUMERIC(78,0) { ERROR('minimum balance cannot be negative'); }
+
     $evm_addresses TEXT[];
     IF !has_profile(@caller) {
-        -- even if the @caller is not EVM address, there is no harm to try to get the balance, it will return nothing
-        -- because bridge.balance can only have records with EVM addresses (it is filled from EVM-compatible contract events)
-        $evm_addresses = array_append($evm_addresses, @caller);
+        if is_evm_address(@caller) {
+            $evm_addresses = array_append($evm_addresses, @caller);
+        } else {
+            FOR $row IN SELECT payer FROM caller_payers WHERE address = @caller {
+                $evm_addresses = array_append($evm_addresses, $row.payer);
+            }
+        }
     } ELSE {
         FOR $row IN get_wallets() {
             IF $row.wallet_type == 'EVM' {
@@ -1815,15 +1872,9 @@ CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURN
 
     $balance NUMERIC(78,0);
     FOR $address IN ARRAY $evm_addresses {
-        IF $token == 'IDOS' {
-            $balance = idos_token_bridge.balance($address);
-        } ELSE IF $token == 'USDC' {
-            $balance = usdc_token_bridge.balance($address);
-        } ELSE {
-            ERROR('invalid token');
-        }
+        $balance = check_balance($address, $token);
 
-        IF $balance > 0::NUMERIC(78,0) {
+        IF $balance >= $minimum_balance {
             RETURN $address;
         }
     }
@@ -1831,15 +1882,43 @@ CREATE OR REPLACE ACTION get_wallet_with_balance($token TEXT) PUBLIC VIEW RETURN
     return null;
 };
 
+CREATE OR REPLACE ACTION get_owned_wallet_with_balance($token TEXT, $minimum_balance NUMERIC(78,0)) PRIVATE VIEW RETURNS (wallet_address TEXT) {
+    IF $token IS NULL { ERROR('invalid token'); }
+    IF $token != 'IDOS' AND $token != 'USDC' { ERROR('invalid token'); }
+    IF $minimum_balance IS NULL { ERROR('minimum balance is required'); }
+    IF $minimum_balance < 0::NUMERIC(78,0) { ERROR('minimum balance cannot be negative'); }
+
+    $evm_addresses TEXT[];
+    IF is_evm_address(@caller) {
+        $evm_addresses = array_append($evm_addresses, @caller);
+    }
+
+    FOR $row IN get_wallets() {
+        IF $row.wallet_type == 'EVM' {
+            $evm_addresses = array_append($evm_addresses, $row.address);
+        }
+    }
+
+    $balance NUMERIC(78,0);
+    FOR $address IN ARRAY $evm_addresses {
+        $balance = check_balance($address, $token);
+
+        IF $balance >= $minimum_balance {
+            RETURN $address;
+        }
+    }
+
+    RETURN null;
+};
+
 -- @generator.description "Request a withdrawal of all tokens from idOS to user's EVM wallet"
 CREATE OR REPLACE ACTION request_withdrawal($token TEXT) PUBLIC {
     capture_gas(0::NUMERIC(6,2));
 
-    $evm_address := get_wallet_with_balance($token);
+    $evm_address := get_owned_wallet_with_balance($token, 1::NUMERIC(78,0));
     if $evm_address is null {
         ERROR('no wallet with balance found');
     }
-
     $balance := check_balance($evm_address, $token);
 
     -- we use lock_admin()+issue() because bridge() is tied to @caller
@@ -1877,7 +1956,11 @@ CREATE OR REPLACE ACTION update_allowance($amount NUMERIC(78,0)) PRIVATE {
 
 -- @generator.description "Capture gas cost from the caller"
 CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
+    IF $amount_human IS NULL { ERROR('amount is required'); }
+    IF $amount_human < 0::NUMERIC(6,2) { ERROR('amount cannot be negative'); }
+
     $amount := from_human_units($amount_human);
+    IF $amount == 0::NUMERIC(78,0) { RETURN; }
 
     IF has_profile(@caller) {
         $allowance NUMERIC(78,0) := get_allowance();
@@ -1887,13 +1970,13 @@ CREATE OR REPLACE ACTION capture_gas($amount_human NUMERIC(6,2)) PRIVATE {
         $amount = greatest($amount - $allowance, 0::NUMERIC(78,0));
     }
 
-    IF $amount > 0::NUMERIC(78,0) {
-        $evm_address := get_wallet_with_balance('IDOS');
-        if $evm_address is null {
-            ERROR('no wallet with balance found');
-        }
-        idos_token_bridge.lock_admin($evm_address, $amount);
+    IF $amount == 0::NUMERIC(78,0) { RETURN; }
+
+    $evm_address := get_wallet_with_balance('IDOS', $amount);
+    if $evm_address is null {
+        ERROR('no wallet with balance found');
     }
+    idos_token_bridge.lock_admin($evm_address, $amount);
 };
 
 -- @generator.description "Get cost of action for 1.2 gas"
@@ -1903,14 +1986,16 @@ CREATE OR REPLACE ACTION action_costing_gas() PUBLIC {
 
 -- @generator.description "Action that captures IDOS tokens from the caller"
 CREATE OR REPLACE ACTION action_costing_idos_token($amount NUMERIC(78,0)) PUBLIC {
-    $evm_address := get_wallet_with_balance('IDOS');
+    IF $amount IS NULL { ERROR('amount is required'); }
+    IF $amount < 0::NUMERIC(78,0) { ERROR('amount cannot be negative'); }
+    IF $amount == 0::NUMERIC(78,0) { RETURN; }
+
+    $evm_address := get_wallet_with_balance('IDOS', $amount);
     if $evm_address is null {
         ERROR('no wallet with balance found');
     }
 
-    IF $amount > 0::NUMERIC(78,0) {
-        idos_token_bridge.lock_admin($evm_address, $amount);
-    }
+    idos_token_bridge.lock_admin($evm_address, $amount);
 };
 
 CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS (issuer_fee NUMERIC(78,0)) {
@@ -1923,13 +2008,16 @@ CREATE OR REPLACE ACTION get_issuer_fee($credential_id UUID) PUBLIC VIEW RETURNS
 
 -- @generator.description "Capture fee from the credentials"
 CREATE OR REPLACE ACTION capture_fee($credential_id UUID) PRIVATE {
-    $evm_address := get_wallet_with_balance('USDC');
+    $fee := get_issuer_fee($credential_id);
+    IF $fee < 0::NUMERIC(78,0) { ERROR('amount cannot be negative'); }
+
+    $amount := ($fee * 125::NUMERIC(78,0)) / 100::NUMERIC(78,0);
+    IF $amount == 0::NUMERIC(78,0) { RETURN; }
+
+    $evm_address := get_wallet_with_balance('USDC', $amount);
     if $evm_address is null {
         ERROR('no wallet with balance found');
     }
-
-    $fee := get_issuer_fee($credential_id);
-    $amount := ($fee * 125)::NUMERIC(78,0) / 100::NUMERIC(78,0);
 
     usdc_token_bridge.lock_admin($evm_address, $amount);
 };
@@ -1943,9 +2031,11 @@ CREATE OR REPLACE ACTION action_costing_fee($credential_id UUID) PUBLIC {
 CREATE OR REPLACE ACTION request_balance_withdrawal($token TEXT, $evm_address_to TEXT) OWNER PUBLIC {
     IF $token == 'IDOS' {
         _, _, _, _, _, $balance, _, _, _ := idos_token_bridge.info();
+        IF $balance == 0::NUMERIC(78,0) { RETURN; }
         idos_token_bridge.issue($evm_address_to, $balance);
     } ELSE IF $token == 'USDC' {
         _, _, _, _, _, $balance, _, _, _ := usdc_token_bridge.info();
+        IF $balance == 0::NUMERIC(78,0) { RETURN; }
         usdc_token_bridge.issue($evm_address_to, $balance);
     } ELSE {
         ERROR('invalid token');
