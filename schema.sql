@@ -267,7 +267,7 @@ CREATE OR REPLACE ACTION user_id_for_wallet_address($address TEXT) PRIVATE VIEW 
 
 -- @generator.description "Add a user to idOS"
 CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     $inserter := get_inserter();
     INSERT INTO users (id, recipient_encryption_public_key, encryption_password_store, inserter)
@@ -276,7 +276,7 @@ CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_pu
 
 -- @generator.description "Update user's encryption key and password store in idOS as inserter (profile creator)"
 CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     get_inserter();
     UPDATE users SET recipient_encryption_public_key=$recipient_encryption_public_key, encryption_password_store=$encryption_password_store
@@ -317,7 +317,7 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $message TEXT,
     $signature TEXT
 ) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'FaceSign' AND $wallet_type != 'MM' {
         error('unsupported wallet type');
@@ -363,7 +363,7 @@ CREATE OR REPLACE ACTION add_wallet(
     $message TEXT,
     $signature TEXT
 ) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     if @authenticator = 'mm_token' {
         error('mm_token callers cannot add wallets');
@@ -429,7 +429,7 @@ CREATE OR REPLACE ACTION get_wallets() PUBLIC VIEW RETURNS table (
 
 -- @generator.description "Remove a wallet from idOS"
 CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     if @authenticator = 'mm_token' {
         error('mm_token callers cannot remove wallets');
@@ -467,7 +467,7 @@ CREATE OR REPLACE ACTION create_preliminary_credential (
     $public_notes_signature TEXT,
     $broader_signature TEXT
 ) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     if credential_id_in_use($credential_id) {
         error('credential id already in use or reserved in a pending preliminary');
@@ -584,7 +584,7 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $original
 -- This action can't be called by kwil-cli (as kwil-cli uses secp256k1 only)
 -- @generator.description "Edit public notes in a credential as issuer"
 CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $public_notes TEXT) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     UPDATE credentials SET public_notes = $public_notes
     WHERE issuer_auth_public_key = @caller
@@ -593,7 +593,7 @@ CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $pub
 
 -- @generator.description "Remove a credential from your idOS profile"
 CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     if !credential_belongs_to_caller($id) {
         error('the credential does not belong to the caller');
@@ -644,7 +644,7 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
 
 -- @generator.description "Rescind a shared credential as a grantee"
 CREATE OR REPLACE ACTION rescind_shared_credential($credential_id UUID) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     $credential_found := false;
     for $row in SELECT 1 FROM credentials AS c
@@ -709,7 +709,7 @@ CREATE OR REPLACE ACTION share_preliminary_credential (
     $grantee_wallet_identifier TEXT,
     $locked_until INT8
 ) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     if !credential_belongs_to_caller($original_id) {
         error('original credential does not belong to the caller');
@@ -859,7 +859,7 @@ CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
 
     -- We capture gas upfront to prevent the real credential from being created if the gas is not enough
     -- The gas can be refunded fully or partially
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     -- Temporary: an issuer is not an inserter/caller. A user grants a DWG to an issuer_key;
     -- the issuer must issue the credential and sign the proof with that same issuer_key.
@@ -1496,7 +1496,7 @@ CREATE OR REPLACE ACTION assert_content_uri_for_authenticator($uri TEXT) PRIVATE
 
 -- @generator.description "Add a new attribute as inserter"
 CREATE OR REPLACE ACTION add_attribute_as_inserter($id UUID, $user_id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     $inserter := get_inserter();
     INSERT INTO user_attributes (id, user_id, attribute_key, value, inserter)
@@ -1505,7 +1505,7 @@ CREATE OR REPLACE ACTION add_attribute_as_inserter($id UUID, $user_id UUID, $att
 
 -- @generator.description  "Create a new attribute in your idOS profile"
 CREATE OR REPLACE ACTION add_attribute($id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     $caller_user_id := caller_user_id();
     INSERT INTO user_attributes (id, user_id, attribute_key, value)
@@ -1533,7 +1533,7 @@ CREATE OR REPLACE ACTION get_attributes() PUBLIC VIEW returns table (
 
 -- @generator.description "Edit an existing attribute"
 CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     $caller_user_id := caller_user_id();
     for $row in SELECT 1 FROM user_attributes AS ha
@@ -1551,7 +1551,7 @@ CREATE OR REPLACE ACTION edit_attribute($id UUID, $attribute_key TEXT, $value TE
 
 -- @generator.description "Remove an existing attribute"
 CREATE OR REPLACE ACTION remove_attribute($id UUID) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     $caller_user_id := caller_user_id();
     DELETE FROM user_attributes
@@ -1561,7 +1561,7 @@ CREATE OR REPLACE ACTION remove_attribute($id UUID) PUBLIC {
 
 -- @generator.description "Share an attribute"
 CREATE OR REPLACE ACTION share_attribute($id UUID, $original_attribute_id UUID, $attribute_key TEXT, $value TEXT) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     $caller_user_id := caller_user_id();
     INSERT INTO user_attributes (id, user_id, attribute_key, value)
@@ -1612,7 +1612,7 @@ CREATE OR REPLACE ACTION dwg_message(
 
 -- @generator.description "Revoke an Access Grant from idOS"
 CREATE OR REPLACE ACTION revoke_access_grant ($id UUID) PUBLIC {
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     $caller_user_id := caller_user_id();
     $ag_exist := false;
@@ -1812,7 +1812,7 @@ CREATE OR REPLACE ACTION is_evm_address($address TEXT) PUBLIC VIEW RETURNS (is_e
 
 CREATE OR REPLACE ACTION set_caller_payer($address TEXT) PUBLIC {
     IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     INSERT INTO caller_payers(address, payer) VALUES ($address, lower(@caller)) ON CONFLICT DO NOTHING;
 };
@@ -1828,7 +1828,7 @@ CREATE OR REPLACE ACTION check_caller_payer($address TEXT) PUBLIC VIEW RETURNS (
 
 CREATE OR REPLACE ACTION unset_caller_payer($address TEXT) PUBLIC {
     IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
-    capture_gas(0.01::NUMERIC(6,2));
+    capture_gas(gas_capture_amount());
 
     DELETE FROM caller_payers WHERE address = $address AND payer = lower(@caller);
 };

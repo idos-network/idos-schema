@@ -11,3 +11,10 @@ USE IF NOT EXISTS erc20 {
     escrow: '0x8444FC33A0c6135B829d020821D42F2E7E81151f',
     distribution_period: '10m'
 } AS usdc_token_bridge;
+
+
+-- GAS CAPTURE AMOUNT
+
+CREATE OR REPLACE ACTION gas_capture_amount() PRIVATE VIEW RETURNS (amount NUMERIC(6,2)) {
+    RETURN 0.01::NUMERIC(6,2);
+};
