@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
     gas_allowance NUMERIC(78,0) NOT NULL DEFAULT '100000000000000000000'::NUMERIC(78,0) -- 100 * 10^18
 );
 
--- for EVM type, address is EVM case insensitive 20 bytes address like 0x5ccbe82FEDE13aecdA449eCA4D4dE05E45861684, and public key is its compressed or uncompressed secp256k1 public key
+-- for EVM type, address is an EIP-55 checksummed 20 byte address like 0x5ccbe82FEDE13aecdA449eCA4D4dE05E45861684, and public key is its compressed or uncompressed secp256k1 public key
 -- for NEAR type, address is like alex.testnet, and public key is base58 in format ed25519:6YMr5ggaCe9AtiQNeh2spn8iff72QVHyaXvu4aKsyWuB
 -- for XRPL type, address is case sensitive like rHb9CJAWyB4rj91VRWn96Dk6kG4b4dtyTh, and public key is 32-byte Ed25519 public key in hex format, prefixed by `ED`
 -- for Stellar type, address is case sensitive like GCFXQ3PM5Y6V4KXQ5Y4L, and public key is 32 byte Ed25519 public key in StrKey format, starting with `G`
@@ -248,15 +248,23 @@ CREATE OR REPLACE ACTION get_inserter_or_null() PRIVATE VIEW RETURNS (name TEXT)
     return null;
 };
 
-CREATE OR REPLACE ACTION caller_user_id() PRIVATE VIEW RETURNS (user_id UUID) {
-    return user_id_for_wallet_address(@caller);
+-- Normalize external EVM identifiers once, before comparing indexed wallet columns.
+-- Other wallet identifiers retain their case. @caller is already canonical.
+CREATE OR REPLACE ACTION normalize_wallet_identifier($identifier TEXT) PRIVATE VIEW RETURNS (identifier TEXT) {
+    if is_evm_address($identifier) {
+        return idos.eip55($identifier);
+    }
+    return $identifier;
 };
 
-CREATE OR REPLACE ACTION user_id_for_wallet_address($address TEXT) PRIVATE VIEW RETURNS (user_id UUID) {
+CREATE OR REPLACE ACTION caller_user_id() PRIVATE VIEW RETURNS (user_id UUID) {
+    return wallet_user_id(@caller);
+};
+
+CREATE OR REPLACE ACTION wallet_user_id($wallet TEXT) PRIVATE VIEW RETURNS (user_id UUID) {
     for $row in SELECT DISTINCT user_id FROM wallets
-        WHERE (wallet_type = 'EVM' AND address = $address COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $address)
-            OR (wallet_type IN ('NEAR', 'FaceSign', 'MM') AND public_key = $address) {
+        WHERE (address = $wallet    AND wallet_type IN ('EVM', 'XRPL', 'Stellar'))
+           OR (public_key = $wallet AND wallet_type IN ('NEAR', 'FaceSign', 'MM')) {
         return $row.user_id;
     }
     return null;
@@ -339,9 +347,13 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
         }
     }
 
+    if $wallet_type = 'EVM' {
+        $address := idos.eip55($address);
+    }
+
     if $wallet_type = 'EVM' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' {
-        for $row_address in SELECT 1 FROM wallets WHERE id != $id AND
-            ((wallet_type = 'EVM' AND address = $address COLLATE NOCASE) OR (wallet_type IN ('XRPL', 'Stellar') AND address = $address)) {
+        for $row_address in SELECT 1 FROM wallets WHERE id != $id
+            AND wallet_type IN ('EVM', 'XRPL', 'Stellar') AND address = $address {
                 error('wallet address already exists in idos');
         }
     }
@@ -387,9 +399,13 @@ CREATE OR REPLACE ACTION add_wallet(
         }
     }
 
+    if $wallet_type = 'EVM' {
+        $address := idos.eip55($address);
+    }
+
     if $wallet_type = 'EVM' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' {
-        for $row_address in SELECT 1 FROM wallets WHERE id != $id AND
-            ((wallet_type = 'EVM' AND address = $address COLLATE NOCASE) OR (wallet_type IN ('XRPL', 'Stellar') AND address = $address)) {
+        for $row_address in SELECT 1 FROM wallets WHERE id != $id
+            AND wallet_type IN ('EVM', 'XRPL', 'Stellar') AND address = $address {
                 error('wallet address already exists in idos');
         }
     }
@@ -440,8 +456,7 @@ CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
         WHERE id = $id
         AND user_id = $caller_user_id
         AND (
-            (wallet_type = 'EVM' AND address = @caller COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = @caller)
+            (wallet_type IN ('EVM', 'XRPL', 'Stellar') AND address = @caller)
             OR (wallet_type IN ('NEAR', 'FaceSign', 'MM') AND public_key = @caller)
         ) {
         error('You can not delete a wallet you are connected with. To delete this wallet you have to connect other wallet.');
@@ -565,7 +580,7 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $original
           INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
           INNER JOIN credentials as oc ON oc.id = sc.original_id
           WHERE c.user_id = $user_id
-              AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
+              AND ag.ag_grantee_wallet_identifier = @caller;
     } else {
         return SELECT DISTINCT c.id, c.user_id, oc.public_notes, c.encryptor_public_key, c.issuer_auth_public_key, c.inserter_type, c.inserter_id, sc.original_id AS original_id
           FROM credentials AS c
@@ -574,7 +589,7 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $original
           INNER JOIN credentials as oc ON oc.id = sc.original_id
           WHERE c.user_id = $user_id
             AND oc.issuer_auth_public_key = $original_issuer_auth_public_key
-            AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
+            AND ag.ag_grantee_wallet_identifier = @caller;
     }
 };
 
@@ -651,7 +666,7 @@ CREATE OR REPLACE ACTION rescind_shared_credential($credential_id UUID) PUBLIC {
         INNER JOIN access_grants AS ag ON c.id = ag.data_id
         INNER JOIN shared_credentials AS sc ON c.id = sc.copy_id
         INNER JOIN credentials AS oc ON oc.id = sc.original_id
-            WHERE c.id = $credential_id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE LIMIT 1 {
+            WHERE c.id = $credential_id AND ag_grantee_wallet_identifier = @caller LIMIT 1 {
         $credential_found := true;
         break;
     }
@@ -879,11 +894,13 @@ CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
     }
 
     -- Get the wallet type and public key for XRPL/NEAR wallets from database
+    $lookup_owner := normalize_wallet_identifier($dwg_owner);
     $dwg_owner_found bool := false;
     $dwg_owner_wallet_type string := '';
     $dwg_owner_public_key string := '';
-    for $wallet in SELECT wallet_type, public_key FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $dwg_owner)  OR (wallet_type IN ('NEAR', 'FaceSign', 'MM') AND public_key = $dwg_owner) {
+    for $wallet in SELECT wallet_type, public_key FROM wallets
+        WHERE (wallet_type IN ('EVM', 'XRPL', 'Stellar') AND address = $lookup_owner)
+            OR (wallet_type IN ('NEAR', 'FaceSign', 'MM') AND public_key = $lookup_owner) {
         $dwg_owner_found := true;
         $dwg_owner_wallet_type := $wallet.wallet_type;
         $dwg_owner_public_key := $wallet.public_key;
@@ -951,6 +968,7 @@ CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
     }
 
     $verifiable_credential_id = idos.get_verifiable_credential_id($original_public_notes);
+    $user_id = wallet_user_id($lookup_owner);
 
     INSERT INTO preliminary_credentials (
         id,
@@ -976,8 +994,7 @@ CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
     )
     VALUES (
         $request_id,
-        (SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $dwg_owner COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $dwg_owner) OR (wallet_type IN ('NEAR', 'FaceSign', 'MM') AND public_key = $dwg_owner)),
+        $user_id,
         $original_id,
         $original_content_uri,
         $original_content_size,
@@ -1271,6 +1288,7 @@ CREATE OR REPLACE ACTION authorize_credential_deletion_as_gateway(
     $wallet_identifier TEXT
 ) PUBLIC VIEW RETURNS (authorized BOOL, content_uri TEXT, content_size INT8, reason TEXT) {
     gateway_or_error();
+    $wallet_identifier := normalize_wallet_identifier($wallet_identifier);
 
     $req_uri TEXT;
     $req_size INT8;
@@ -1289,14 +1307,12 @@ CREATE OR REPLACE ACTION authorize_credential_deletion_as_gateway(
     -- Same access model as authorize_blob_fetch_as_gateway: grantee or owner.
     for $row in SELECT 1 FROM access_grants
         WHERE data_id = $credential_id
-            AND ag_grantee_wallet_identifier = $wallet_identifier COLLATE NOCASE {
+            AND ag_grantee_wallet_identifier = $wallet_identifier {
         return true, $req_uri, $req_size, '';
     }
 
-    for $row in SELECT 1 FROM credentials WHERE id = $credential_id
-        AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $wallet_identifier COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $wallet_identifier)
-            OR (wallet_type IN ('NEAR', 'FaceSign', 'MM') AND public_key = $wallet_identifier)) {
+    $user_id = wallet_user_id($wallet_identifier);
+    for $row in SELECT 1 FROM credentials WHERE id = $credential_id AND user_id = $user_id {
         return true, $req_uri, $req_size, '';
     }
 
@@ -1339,19 +1355,18 @@ CREATE OR REPLACE ACTION authorize_blob_fetch_as_gateway(
     $wallet_identifier TEXT
 ) PUBLIC VIEW RETURNS (authorized BOOL, content_uri TEXT, content_size INT8) {
     gateway_or_error();
+    $wallet_identifier := normalize_wallet_identifier($wallet_identifier);
 
     for $row in SELECT c.content_uri, c.content_size FROM credentials AS c
         INNER JOIN access_grants AS ag ON c.id = ag.data_id
         WHERE c.id = $credential_id
-            AND ag.ag_grantee_wallet_identifier = $wallet_identifier COLLATE NOCASE {
+            AND ag.ag_grantee_wallet_identifier = $wallet_identifier {
 
         return true, $row.content_uri, $row.content_size;
     }
 
-    for $row in SELECT content_uri, content_size FROM credentials WHERE id = $credential_id
-        AND user_id=(SELECT DISTINCT user_id FROM wallets WHERE (wallet_type = 'EVM' AND address = $wallet_identifier COLLATE NOCASE)
-            OR (wallet_type IN ('XRPL', 'Stellar') AND address = $wallet_identifier)
-            OR (wallet_type IN ('NEAR', 'FaceSign', 'MM') AND public_key = $wallet_identifier)) {
+    $user_id = wallet_user_id($wallet_identifier);
+    for $row in SELECT content_uri, content_size FROM credentials WHERE id = $credential_id AND user_id = $user_id {
 
         return true, $row.content_uri, $row.content_size;
     }
@@ -1404,7 +1419,7 @@ CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS ta
 
     $ag_granted bool := false;
 
-    for $int_ag_row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
+    for $int_ag_row in SELECT 1 FROM access_grants WHERE data_id = $id AND ag_grantee_wallet_identifier = @caller {
         $ag_granted := true;
         break;
     }
@@ -1422,7 +1437,7 @@ CREATE OR REPLACE ACTION get_credential_shared ($id UUID) PUBLIC VIEW RETURNS ta
 
 CREATE OR REPLACE ACTION get_sibling_credential_id ($content_hash TEXT) PUBLIC VIEW RETURNS (id UUID) {
     for $row in SELECT c.id FROM credentials as c INNER JOIN access_grants as ag ON c.id = ag.data_id
-        WHERE ag.content_hash = $content_hash AND ag.ag_grantee_wallet_identifier = @caller COLLATE NOCASE {
+        WHERE ag.content_hash = $content_hash AND ag.ag_grantee_wallet_identifier = @caller {
             return $row.id;
         }
 };
@@ -1686,12 +1701,12 @@ CREATE OR REPLACE ACTION get_access_grants_granted ($user_id UUID, $page INT, $s
     if $user_id is null {
       return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id
         FROM access_grants
-        WHERE ag_grantee_wallet_identifier = @caller COLLATE NOCASE
+        WHERE ag_grantee_wallet_identifier = @caller
         ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
     } else {
       return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id
         FROM access_grants
-        WHERE ag_grantee_wallet_identifier = @caller COLLATE NOCASE
+        WHERE ag_grantee_wallet_identifier = @caller
             AND ag_owner_user_id = $user_id
         ORDER BY height ASC, id ASC LIMIT $limit OFFSET $offset;
     }
@@ -1700,12 +1715,12 @@ CREATE OR REPLACE ACTION get_access_grants_granted ($user_id UUID, $page INT, $s
 -- @generator.paramOptional "user_id"
 CREATE OR REPLACE ACTION get_access_grants_granted_count ($user_id UUID) PUBLIC VIEW RETURNS (count INT) {
     if $user_id is null {
-      for $row in SELECT COUNT(1) as count FROM access_grants WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE {
+      for $row in SELECT COUNT(1) as count FROM access_grants WHERE ag_grantee_wallet_identifier =  @caller {
         return $row.count;
       }
     } else {
       for $row in SELECT COUNT(1) as count FROM access_grants
-        WHERE ag_grantee_wallet_identifier =  @caller COLLATE NOCASE
+        WHERE ag_grantee_wallet_identifier =  @caller
             AND ag_owner_user_id = $user_id {
         return $row.count;
       }
@@ -1733,6 +1748,8 @@ CREATE OR REPLACE ACTION create_access_grant(
     $inserter_type TEXT,
     $inserter_id TEXT
 ) PRIVATE {
+    $grantee_wallet_identifier := normalize_wallet_identifier($grantee_wallet_identifier);
+
     if credential_deletion_requested($data_id) {
         error('credential deletion already requested');
     }
@@ -1787,7 +1804,7 @@ CREATE OR REPLACE ACTION get_access_grants_for_credential($credential_id UUID) P
     inserter_id TEXT
 ) {
     return SELECT id, ag_owner_user_id, ag_grantee_wallet_identifier, data_id, locked_until, content_hash, inserter_type, inserter_id
-        FROM access_grants WHERE data_id = $credential_id AND ag_grantee_wallet_identifier = @caller COLLATE NOCASE;
+        FROM access_grants WHERE data_id = $credential_id AND ag_grantee_wallet_identifier = @caller;
 };
 
 -- OTHER ACTIONS
@@ -1795,7 +1812,7 @@ CREATE OR REPLACE ACTION get_access_grants_for_credential($credential_id UUID) P
 -- Should we improve it to work with near wallets too?
 -- @generator.notAuthorized
 CREATE OR REPLACE ACTION has_profile($address TEXT) PUBLIC VIEW returns (has_profile BOOL) {
-    return user_id_for_wallet_address($address) is not null;
+    return wallet_user_id(normalize_wallet_identifier($address)) is not null;
 };
 -- GAS AND FEES
 
