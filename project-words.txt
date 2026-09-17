@@ -19,3 +19,4 @@ fkey
 ipfs
 pkoch
 ukyc
+checksummed
