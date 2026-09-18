@@ -286,9 +286,17 @@ CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_pu
 CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_encryption_public_key TEXT, $encryption_password_store TEXT) PUBLIC {
     capture_gas(gas_capture_amount());
 
-    get_inserter();
+    $inserter := get_inserter();
+    $owned := false;
+    for $row in SELECT 1 FROM users WHERE id = $id AND inserter = $inserter {
+        $owned := true;
+    }
+    if !$owned {
+        error('forbidden: the user was not created by the inserter');
+    }
+
     UPDATE users SET recipient_encryption_public_key=$recipient_encryption_public_key, encryption_password_store=$encryption_password_store
-        WHERE id = $id;
+        WHERE id = $id AND inserter = $inserter;
 };
 
 CREATE OR REPLACE ACTION get_user() PUBLIC VIEW RETURNS (id UUID, recipient_encryption_public_key TEXT, encryption_password_store TEXT) {
