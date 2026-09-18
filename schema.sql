@@ -1067,15 +1067,21 @@ CREATE OR REPLACE ACTION get_preliminary_credential_as_gateway($id UUID) PUBLIC 
 };
 
 -- @generator.ignore
+-- The gateway validates and pins the blobs of one specific preliminary row, so finalization
+-- must bind to that exact row. Matching only on (original_id, copy_id) is not enough: those
+-- columns are not unique, and once a row is removed (stale sweep) its credential ids and
+-- content URIs are released, letting a different row be substituted before finalization runs.
 CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
+    $preliminary_id UUID,
     $preliminary_original_id UUID,
-    $preliminary_copy_id UUID
+    $preliminary_copy_id UUID,
+    $preliminary_original_content_uri TEXT,
+    $preliminary_copy_content_uri TEXT
 ) PUBLIC {
     gateway_or_error();
 
     $preliminary_found := false;
     $user_id UUID;
-    $preliminary_id UUID;
     $original_content_uri TEXT;
     $original_content_size INT8;
     $original_encryptor_public_key TEXT;
@@ -1093,7 +1099,6 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
     $inserter_id TEXT;
 
     for $row in SELECT
-            id,
             user_id,
             original_content_uri,
             original_content_size,
@@ -1111,15 +1116,20 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
             inserter_type,
             inserter_id
             FROM preliminary_credentials
-            WHERE (
+            WHERE id = $preliminary_id AND (
                 original_id = $preliminary_original_id
                 OR (original_id IS NULL AND $preliminary_original_id IS NULL)
             ) AND (
                 copy_id = $preliminary_copy_id
                 OR (copy_id IS NULL AND $preliminary_copy_id IS NULL)
+            ) AND (
+                original_content_uri = $preliminary_original_content_uri
+                OR (original_content_uri IS NULL AND $preliminary_original_content_uri IS NULL)
+            ) AND (
+                copy_content_uri = $preliminary_copy_content_uri
+                OR (copy_content_uri IS NULL AND $preliminary_copy_content_uri IS NULL)
             ) {
         $preliminary_found := true;
-        $preliminary_id := $row.id;
         $user_id := $row.user_id;
         $original_content_uri := $row.original_content_uri;
         $original_content_size := $row.original_content_size;
@@ -1139,7 +1149,7 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
         break;
     }
     if !$preliminary_found {
-        error('the preliminary record does not exist');
+        error('the preliminary record does not exist or changed since the upload started');
     }
 
     if $preliminary_original_id is not null
