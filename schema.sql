@@ -46,10 +46,9 @@ CREATE TABLE IF NOT EXISTS caller_payers (
         OR lower(substring(address, 1, 2)) != '0x' -- Can't be an EVM-shaped address
     ),
     payer   TEXT CHECK (
-        payer = lower(payer) -- Canonicalize as lower
-        AND length(payer) = 42
+        length(payer) = 42
         AND substring(payer, 1, 2) = '0x'
-        AND encode(decode(substring(payer, 3, 40), 'hex'), 'hex') = substring(payer, 3, 40)
+        AND encode(decode(substring(payer, 3, 40), 'hex'), 'hex') = lower(substring(payer, 3, 40))
     ),
     PRIMARY KEY (address, payer)
 );
@@ -1849,13 +1848,13 @@ CREATE OR REPLACE ACTION set_caller_payer($address TEXT) PUBLIC {
     IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
     capture_gas(gas_capture_amount());
 
-    INSERT INTO caller_payers(address, payer) VALUES ($address, lower(@caller)) ON CONFLICT DO NOTHING;
+    INSERT INTO caller_payers(address, payer) VALUES ($address, @caller) ON CONFLICT DO NOTHING;
 };
 
 CREATE OR REPLACE ACTION check_caller_payer($address TEXT) PUBLIC VIEW RETURNS (is_payer BOOL) {
     IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
 
-    FOR $row in SELECT 1 FROM caller_payers WHERE address = $address AND payer = lower(@caller) {
+    FOR $row in SELECT 1 FROM caller_payers WHERE address = $address AND payer = @caller {
         RETURN true;
     }
     RETURN false;
@@ -1865,7 +1864,7 @@ CREATE OR REPLACE ACTION unset_caller_payer($address TEXT) PUBLIC {
     IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
     capture_gas(gas_capture_amount());
 
-    DELETE FROM caller_payers WHERE address = $address AND payer = lower(@caller);
+    DELETE FROM caller_payers WHERE address = $address AND payer = @caller;
 };
 
 CREATE OR REPLACE ACTION check_balance($address TEXT, $token TEXT) PUBLIC VIEW RETURNS (balance NUMERIC(78,0)) {
