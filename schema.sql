@@ -626,8 +626,10 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
         error('there are locked access grants for this credential');
     }
 
+    -- Already requested: succeed so the client can retry the blob DELETE.
+    -- A second insert is impossible (credential_id is the primary key).
     if credential_deletion_requested($id) {
-        error('credential deletion already requested');
+        return;
     }
 
     $content_uri TEXT;
@@ -682,8 +684,9 @@ CREATE OR REPLACE ACTION rescind_shared_credential($credential_id UUID) PUBLIC {
         error('can not find the credential shared to you');
     }
 
+    -- Already requested: succeed so the client can retry the blob DELETE.
     if credential_deletion_requested($credential_id) {
-        error('credential deletion already requested');
+        return;
     }
 
     $content_uri TEXT;
@@ -1363,8 +1366,12 @@ CREATE OR REPLACE ACTION delete_stale_credential_deletion_requests_as_gateway($a
         error('age_seconds must be positive');
     }
 
+    -- ukyc:// stays until the client DELETE finalizes it. The delete worker cannot
+    -- retry those without the caller's AccessToken, and dropping the row makes a
+    -- later DELETE return 204 while the credential and blob are still live.
     DELETE FROM credential_deletion_requests
-        WHERE (@block_timestamp - created_at) > $age_seconds;
+        WHERE (@block_timestamp - created_at) > $age_seconds
+            AND substring(content_uri, 1, 7) != 'ukyc://';
 };
 
 -- @generator.ignore
