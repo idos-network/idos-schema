@@ -388,6 +388,7 @@ CREATE OR REPLACE ACTION add_wallet(
         error('mm_token callers cannot add wallets');
     }
 
+    -- MM wallets can't be added by a user themselves
     if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'FaceSign' {
         error('unsupported wallet type');
     }
@@ -401,7 +402,7 @@ CREATE OR REPLACE ACTION add_wallet(
             error('wallet require a public_key to be given');
         }
 
-        for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type IN ('NEAR', 'Stellar', 'XRPL', 'FaceSign') AND public_key = $public_key {
+        for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type IN ('NEAR', 'Stellar', 'XRPL', 'FaceSign', 'MM') AND public_key = $public_key {
             error('wallet public key already exists in idos');
         }
     }
