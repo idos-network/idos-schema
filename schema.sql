@@ -1060,12 +1060,13 @@ CREATE OR REPLACE ACTION get_preliminary_credential_as_gateway($id UUID) PUBLIC 
     copy_content_uri TEXT,
     copy_content_size INT8,
     copy_encryptor_public_key TEXT,
+    inserter_id TEXT,
     created_at INT
 ) {
     gateway_or_error();
 
     return SELECT id, original_id, original_content_uri, original_content_size, original_encryptor_public_key,
-        copy_id, copy_content_uri, copy_content_size, copy_encryptor_public_key, created_at
+        copy_id, copy_content_uri, copy_content_size, copy_encryptor_public_key, inserter_id, created_at
         FROM preliminary_credentials WHERE id = $id;
 };
 
