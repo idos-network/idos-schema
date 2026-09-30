@@ -1359,21 +1359,11 @@ CREATE OR REPLACE ACTION finalize_credential_deletion_as_gateway($credential_id 
     DELETE FROM access_grants WHERE data_id = $credential_id;
 };
 
--- @generator.ignore
-CREATE OR REPLACE ACTION delete_stale_credential_deletion_requests_as_gateway($age_seconds INT) PUBLIC {
-    gateway_or_error();
-
-    if $age_seconds is null or $age_seconds <= 0 {
-        error('age_seconds must be positive');
-    }
-
-    -- ukyc:// stays until the client DELETE finalizes it. The delete worker cannot
-    -- retry those without the caller's AccessToken, and dropping the row makes a
-    -- later DELETE return 204 while the credential and blob are still live.
-    DELETE FROM credential_deletion_requests
-        WHERE (@block_timestamp - created_at) > $age_seconds
-            AND substring(content_uri, 1, 7) != 'ukyc://';
-};
+-- credential_deletion_requests stay until finalize_credential_deletion_as_gateway.
+-- The delete worker unpins before finalize; dropping the request after unpin leaves
+-- a live credential whose blob is already gone. UKYC finalize needs the caller's
+-- AccessToken, so those rows stay for DELETE /blob/v1/credentials/:id.
+DROP ACTION IF EXISTS delete_stale_credential_deletion_requests_as_gateway;
 
 -- @generator.ignore
 CREATE OR REPLACE ACTION authorize_blob_fetch_as_gateway(
