@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS credentials (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS credentials_user_id ON credentials(user_id);
-CREATE INDEX IF NOT EXISTS credentials_vc_id ON credentials(verifiable_credential_id);
+-- Copies store a null verifiable_credential_id, and nulls do not collide here.
+CREATE UNIQUE INDEX IF NOT EXISTS credentials_vc_id_issuer ON credentials(verifiable_credential_id, issuer_auth_public_key);
 CREATE INDEX IF NOT EXISTS credentials_content_uri ON credentials(content_uri);
 
 CREATE TABLE IF NOT EXISTS preliminary_credentials (
@@ -609,7 +610,14 @@ CREATE OR REPLACE ACTION get_credentials_shared_by_user($user_id UUID, $original
 CREATE OR REPLACE ACTION edit_public_notes_as_issuer($public_notes_id TEXT, $public_notes TEXT) PUBLIC {
     capture_gas(gas_capture_amount());
 
-    UPDATE credentials SET public_notes = $public_notes
+    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
+    if $verifiable_credential_id = '' {
+        $verifiable_credential_id := $public_notes_id;
+    }
+
+    UPDATE credentials SET
+        public_notes = $public_notes,
+        verifiable_credential_id = $verifiable_credential_id
     WHERE issuer_auth_public_key = @caller
         AND verifiable_credential_id = $public_notes_id;
 };
