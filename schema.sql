@@ -330,7 +330,8 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $address TEXT,
     $public_key TEXT,
     $wallet_type TEXT,
-    $message TEXT,
+    $not_before TEXT,
+    $not_after TEXT,
     $signature TEXT
 ) PUBLIC {
     capture_gas(gas_capture_amount());
@@ -339,9 +340,14 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
         error('unsupported wallet type');
     }
 
-    if $wallet_type != 'MM' {
-        if !idos.is_wallet_valid($address, $public_key, $wallet_type, $message, $signature) {
-            error('wallet is invalid');
+    if $wallet_type = 'EVM' {
+        $address := idos.eip55($address);
+    }
+
+    if $wallet_type = 'EVM' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' {
+        for $row_address in SELECT 1 FROM wallets WHERE id != $id
+            AND wallet_type IN ('EVM', 'XRPL', 'Stellar') AND address = $address {
+                error('wallet address already exists in idos');
         }
     }
 
@@ -355,14 +361,27 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
         }
     }
 
-    if $wallet_type = 'EVM' {
-        $address := idos.eip55($address);
+    $message TEXT := NULL;
+    if $wallet_type != 'MM' {
+        if !idos.validate_not_usable_times($not_before, $not_after) {
+            error('not_before must be before not_after');
+        }
+
+        if parse_unix_timestamp($not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int > (@block_timestamp + 65)
+                OR @block_timestamp > parse_unix_timestamp($not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int {
+            error('this wallet proof can only be used after not_before and before not_after');
+        }
+
+        if !idos.verify_add_wallet($address, $public_key, $wallet_type, $user_id::TEXT, $not_before, $not_after, $signature) {
+            error('wallet is invalid');
+        }
+
+        $message = idos.add_wallet_message($address, $wallet_type, $user_id::TEXT, $not_before, $not_after);
     }
 
-    if $wallet_type = 'EVM' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' {
-        for $row_address in SELECT 1 FROM wallets WHERE id != $id
-            AND wallet_type IN ('EVM', 'XRPL', 'Stellar') AND address = $address {
-                error('wallet address already exists in idos');
+    for $existing in SELECT user_id FROM wallets WHERE id = $id {
+        if $existing.user_id != $user_id {
+            error('cannot change user_id of an existing wallet');
         }
     }
 
@@ -373,6 +392,31 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     SET user_id=$user_id, address=$address, public_key=$public_key, wallet_type=$wallet_type, message=$message, signature=$signature, inserter=$inserter;
 };
 
+-- @generator.description "Construct canonical add-wallet message"
+CREATE OR REPLACE ACTION add_wallet_message(
+    $address TEXT,
+    $wallet_type TEXT,
+    $user_id UUID,
+    $not_before TEXT,
+    $not_after TEXT
+) PUBLIC VIEW returns (message TEXT) {
+    if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'FaceSign' {
+        error('unsupported wallet type');
+    }
+
+    if !idos.validate_not_usable_times($not_before, $not_after) {
+        error('not_before must be before not_after');
+    }
+
+    return idos.add_wallet_message(
+        $address,
+        $wallet_type,
+        $user_id::TEXT,
+        $not_before,
+        $not_after
+    );
+};
+
 -- @generator.paramOptional "public_key"
 -- @generator.description "Add a wallet to idOS"
 CREATE OR REPLACE ACTION add_wallet(
@@ -380,7 +424,8 @@ CREATE OR REPLACE ACTION add_wallet(
     $address TEXT,
     $public_key TEXT,
     $wallet_type TEXT,
-    $message TEXT,
+    $not_before TEXT,
+    $not_after TEXT,
     $signature TEXT
 ) PUBLIC {
     capture_gas(gas_capture_amount());
@@ -389,23 +434,8 @@ CREATE OR REPLACE ACTION add_wallet(
         error('mm_token callers cannot add wallets');
     }
 
-    -- MM wallets can't be added by a user themselves
     if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'FaceSign' {
         error('unsupported wallet type');
-    }
-
-    if !idos.is_wallet_valid($address, $public_key, $wallet_type, $message, $signature) {
-        error('wallet is invalid');
-    }
-
-    if $wallet_type = 'NEAR' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' OR $wallet_type = 'FaceSign' {
-        if $public_key is null {
-            error('wallet require a public_key to be given');
-        }
-
-        for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type IN ('NEAR', 'Stellar', 'XRPL', 'FaceSign', 'MM') AND public_key = $public_key {
-            error('wallet public key already exists in idos');
-        }
     }
 
     if $wallet_type = 'EVM' {
@@ -419,7 +449,36 @@ CREATE OR REPLACE ACTION add_wallet(
         }
     }
 
+    if $wallet_type = 'NEAR' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' OR $wallet_type = 'FaceSign' {
+        if $public_key is null {
+            error('wallet require a public_key to be given');
+        }
+
+        for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type IN ('NEAR', 'Stellar', 'XRPL', 'FaceSign') AND public_key = $public_key {
+            error('wallet public key already exists in idos');
+        }
+    }
+
+    if !idos.validate_not_usable_times($not_before, $not_after) {
+        error('not_before must be before not_after');
+    }
+
+    if parse_unix_timestamp($not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int > (@block_timestamp + 65)
+            OR @block_timestamp > parse_unix_timestamp($not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int {
+        error('this wallet proof can only be used after not_before and before not_after');
+    }
+
     $caller_user_id := caller_user_id();
+    if $caller_user_id is null {
+        error('caller has no user profile');
+    }
+
+    if !idos.verify_add_wallet($address, $public_key, $wallet_type, $caller_user_id::TEXT, $not_before, $not_after, $signature) {
+        error('wallet is invalid');
+    }
+
+    $message := idos.add_wallet_message($address, $wallet_type, $caller_user_id::TEXT, $not_before, $not_after);
+
     INSERT INTO wallets (id, user_id, address, public_key, wallet_type, message, signature)
     VALUES (
         $id,
