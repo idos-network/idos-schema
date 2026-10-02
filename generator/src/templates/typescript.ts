@@ -235,8 +235,8 @@ export function generateTypescript(methods: KwilAction[]) {
     return name === "content_size" || name.endsWith("_content_size");
   }
 
-  // not_before, dwg_not_after, access_grant_timelock, not_usable_before, …
-  const RFC3339_FIELD = /(?:^|_)(?:not_usable_before|not_usable_after|not_before|not_after|access_grant_timelock)$/;
+  // Exact names, or the same names with a dwg_ prefix. audit_not_after does not match.
+  const RFC3339_FIELD = /^(?:dwg_)?(?:not_usable_before|not_usable_after|not_before|not_after|access_grant_timelock)$/;
 
   function isRfc3339DateTimeField(arg: Value): boolean {
     return arg.type === "TEXT" && RFC3339_FIELD.test(arg.name);
