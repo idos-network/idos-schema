@@ -1900,7 +1900,7 @@ CREATE OR REPLACE ACTION has_profile($address TEXT) PUBLIC VIEW returns (has_pro
 };
 -- GAS AND FEES
 
-CREATE OR REPLACE ACTION is_evm_address($address TEXT) PUBLIC VIEW RETURNS (is_evm_address BOOL) {
+CREATE OR REPLACE ACTION is_evm_address($address TEXT) PRIVATE VIEW RETURNS (is_evm_address BOOL) {
     IF $address IS NULL { RETURN false; }
     IF length($address) != 42 { RETURN false; }
     IF substring($address, 1, 2) != '0x' { RETURN false; }
