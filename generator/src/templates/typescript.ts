@@ -401,6 +401,10 @@ export function generateTypescript(methods: KwilAction[]) {
       let hasReturn = method.returns.length > 0;
       let returnStatement = hasReturn ? "return" : "";
       let methodCall = hasReturn ? `call < ${outputName}[] > ` : "execute";
+      // Call always returns an array, if it is one item (not a RETURN TABLE) we need to get the first element
+      const firstRow = method.generatorComments.returnRequired
+        ? `.then(result => { if (!result[0]) throw new Error("${method.name} returned no rows"); return result[0]; })`
+        : `.then(result => result[0])`;
 
       if (method.args.length > 0) {
         writer.writeLine(`const inputs = ${inputName}Schema.parse(params); `);
@@ -411,9 +415,9 @@ export function generateTypescript(methods: KwilAction[]) {
           writer.conditionalWrite(!!method.generatorComments.description && !hasReturn, () => `description: "${method.generatorComments.description}", `);
         });
         writer.conditionalWriteLine(method.generatorComments.notAuthorized, () => `, undefined, // Signer is not required here`);
-        // Call always returns an array, if it is one item (not a RETURN TABLE) we need to get the first element
-        writer.conditionalWrite(hasReturn && !method.returnsArray, () => `).then(result => result[0]`);
-        writer.write(");");
+        writer.write(")");
+        writer.conditionalWrite(hasReturn && !method.returnsArray, () => firstRow);
+        writer.write(";");
       } else {
         writer.write(`${returnStatement} await kwilClient.${methodCall}(`);
         writer.block(() => {
@@ -422,7 +426,7 @@ export function generateTypescript(methods: KwilAction[]) {
           writer.conditionalWrite(!!method.generatorComments.description, () => `description: "${method.generatorComments.description}", `);
         });
         writer.write(")");
-        writer.conditionalWrite(hasReturn && !method.returnsArray, () => `.then(result => result[0])`);
+        writer.conditionalWrite(hasReturn && !method.returnsArray, () => firstRow);
         writer.write(";");
       }
     })
