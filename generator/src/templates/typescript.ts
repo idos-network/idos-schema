@@ -418,11 +418,14 @@ export function generateTypescript(methods: KwilAction[]) {
       );
     }
 
+    const optionalSingleRow = method.returns.length > 0
+      && !method.returnsArray
+      && !method.generatorComments.returnRequired;
     const functionDeclaration = sourceFile.addFunction({
       name,
       isExported: true,
       isAsync: true,
-      returnType: `Promise < ${outputName}${method.returnsArray ? "[]" : ""} > `,
+      returnType: `Promise < ${outputName}${method.returnsArray ? "[]" : optionalSingleRow ? " | undefined" : ""} > `,
       parameters: [
         {
           name: "kwilClient",
