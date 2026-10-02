@@ -73,6 +73,36 @@ export function generateTypescript(methods: KwilAction[]) {
     ]
   });
 
+  // add_wallet and add_wallet_message reject MM. upsert_wallet_as_inserter keeps walletTypeSchema.
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [
+      {
+        name: "ADD_WALLET_TYPES",
+        initializer: `['EVM', 'NEAR', 'XRPL', 'Stellar', 'FaceSign'] as const`,
+      }
+    ]
+  })
+
+  sourceFile.addTypeAlias({
+    isExported: true,
+    name: "AddWalletType",
+    type: "(typeof ADD_WALLET_TYPES)[number]",
+  });
+
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [
+      {
+        name: "addWalletTypeSchema",
+        type: "z.ZodType<AddWalletType>",
+        initializer: `z.enum(ADD_WALLET_TYPES)`,
+      }
+    ]
+  });
+
   sourceFile.addVariableStatement({
     declarationKind: VariableDeclarationKind.Const,
     isExported: true,
@@ -242,7 +272,12 @@ export function generateTypescript(methods: KwilAction[]) {
     return arg.type === "TEXT" && RFC3339_FIELD.test(arg.name);
   }
 
-  function zodSchemaForArg(arg: Value, refineBlobFields: boolean): string {
+  const ADD_WALLET_ACTIONS = new Set(["add_wallet", "add_wallet_message"]);
+
+  function zodSchemaForArg(arg: Value, refineBlobFields: boolean, methodName: string): string {
+    if (arg.name === "wallet_type" && ADD_WALLET_ACTIONS.has(methodName)) {
+      return "addWalletTypeSchema";
+    }
     if (customZodDbMapping[arg.name]) {
       return customZodDbMapping[arg.name];
     }
@@ -261,7 +296,10 @@ export function generateTypescript(methods: KwilAction[]) {
     return `z.${zodDbMapping[arg.type]}()`;
   }
 
-  function zodTypeForArg(arg: Value): string {
+  function zodTypeForArg(arg: Value, methodName: string): string {
+    if (arg.name === "wallet_type" && ADD_WALLET_ACTIONS.has(methodName)) {
+      return "z.ZodType<AddWalletType>";
+    }
     if (customZodTypeMapping[arg.name]) {
       return customZodTypeMapping[arg.name];
     }
@@ -276,13 +314,15 @@ export function generateTypescript(methods: KwilAction[]) {
     refineBlobFields = false,
     nullWhen = [],
     nullish = false,
+    methodName,
   }: {
     optionals?: string[],
     refineBlobFields?: boolean,
     nullWhen?: GeneratorComments["paramNullWhen"],
     // Inputs: optionals may be omitted, the client sends missing keys as null.
     nullish?: boolean,
-  } = {}): string | undefined {
+    methodName: string,
+  }): string | undefined {
     if (args.length === 0) return;
 
     sourceFile.addVariableStatement({
@@ -300,7 +340,7 @@ export function generateTypescript(methods: KwilAction[]) {
                   writer.write(nullish ? "z.ZodOptional<z.ZodNullable<" : "z.ZodNullable<");
                 }
 
-                writer.write(`${zodTypeForArg(arg)} `);
+                writer.write(`${zodTypeForArg(arg, methodName)} `);
 
                 if (optionals.includes(arg.name)) {
                   writer.write(nullish ? ">>" : ">");
@@ -316,7 +356,7 @@ export function generateTypescript(methods: KwilAction[]) {
             writer.write(`z.object(`);
             writer.inlineBlock(() => {
               args.forEach(arg => {
-                const type = zodSchemaForArg(arg, refineBlobFields);
+                const type = zodSchemaForArg(arg, refineBlobFields, methodName);
 
                 writer.write(`${arg.name}: ${type}`);
                 writer.conditionalWrite(optionals.includes(arg.name), () => nullish ? ".nullish()" : ".nullable()");
@@ -361,6 +401,7 @@ export function generateTypescript(methods: KwilAction[]) {
           refineBlobFields: true,
           nullish: true,
           nullWhen: method.generatorComments.paramNullWhen,
+          methodName: method.name,
         },
       );
     }
@@ -372,6 +413,7 @@ export function generateTypescript(methods: KwilAction[]) {
         method.returns,
         {
           optionals: method.generatorComments.returnOptional,
+          methodName: method.name,
         },
       );
     }

@@ -497,7 +497,7 @@ CREATE OR REPLACE ACTION add_wallet(
     );
 };
 
--- @generator.returnOptional "public_key", "inserter"
+-- @generator.returnOptional "public_key", "inserter", "message"
 CREATE OR REPLACE ACTION get_wallets() PUBLIC VIEW RETURNS table (
     id UUID,
     user_id UUID,
