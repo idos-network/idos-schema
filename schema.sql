@@ -322,8 +322,9 @@ CREATE OR REPLACE ACTION get_user_as_inserter($id UUID) PUBLIC VIEW RETURNS (
 
 -- WALLET ACTIONS
 
--- @generator.paramOptional "public_key"
 -- @generator.description "Add a wallet to idOS by inserter (profile creator)"
+-- @generator.paramOptional "public_key" "not_before" "not_after"
+-- @generator.paramNullWhen "wallet_type" "MM" "not_before" "not_after"
 CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $id UUID,
     $user_id UUID,
@@ -1335,7 +1336,7 @@ CREATE OR REPLACE ACTION get_stale_preliminary_as_gateway($age_seconds INT) PUBL
         WHERE (@block_timestamp - created_at) > $age_seconds;
 };
 
--- `@generator.ignore`
+-- @generator.ignore
 CREATE OR REPLACE ACTION delete_stale_preliminary_as_gateway($age_seconds INT) PUBLIC {
     gateway_or_error();
 
@@ -1910,6 +1911,7 @@ CREATE OR REPLACE ACTION is_evm_address($address TEXT) PUBLIC VIEW RETURNS (is_e
     RETURN encode(decode($body, 'hex'), 'hex') = $body;
 };
 
+-- @generator.description "Set the caller as a payer for a specific EVM address"
 CREATE OR REPLACE ACTION set_caller_payer($address TEXT) PUBLIC {
     IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
     capture_gas(gas_capture_amount());
@@ -1926,6 +1928,7 @@ CREATE OR REPLACE ACTION check_caller_payer($address TEXT) PUBLIC VIEW RETURNS (
     RETURN false;
 };
 
+-- @generator.description "Remove the caller as a payer for a specific EVM address"
 CREATE OR REPLACE ACTION unset_caller_payer($address TEXT) PUBLIC {
     IF NOT is_evm_address(@caller) { ERROR('Caller has to be an EVM address'); }
     capture_gas(gas_capture_amount());

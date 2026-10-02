@@ -45,6 +45,7 @@ Use SQL comments to control code generation:
 
 - `@generator.description "text"` - Add description for the action
 - `@generator.paramOptional "paramName"` - Mark parameter as optional
+- `@generator.paramNullWhen "field" "value" "param1" "param2"` - Zod `.refine`: params must be null when `field === value`, set otherwise
 - `@generator.notAuthorized` - Mark action as requiring authorization
 - `@generator.ignore` - Exclude action from generated output
 

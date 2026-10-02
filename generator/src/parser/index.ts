@@ -28,6 +28,9 @@ export interface GeneratorComments {
   description: string;
   paramOptional: string[];
   returnOptional: string[];
+  // `@generator.paramNullWhen "wallet_type" "MM" "not_before" "not_after"`:
+  // params must be null when field === value, and set otherwise.
+  paramNullWhen: { field: string; value: string; params: string[] }[];
 }
 
 export interface Value {
@@ -36,7 +39,7 @@ export interface Value {
 }
 
 function parseArrayDescription(input: string): string[] {
-  return input.replace(/\"/g, "").split(",").map(s => s.trim()).filter(s => s.length > 0);
+  return input.replace(/\"/g, "").split(/[\s,]+/).map(s => s.trim()).filter(s => s.length > 0);
 }
 
 function applyGeneratorComment(acc: GeneratorComments, directive: string, rawValue: string): GeneratorComments {
@@ -54,6 +57,13 @@ function applyGeneratorComment(acc: GeneratorComments, directive: string, rawVal
     }
 
     acc.returnOptional.push(...parseArrayDescription(value));
+  } else if (directive === "paramNullWhen") {
+    const [field, whenValue, ...params] = parseArrayDescription(value);
+    if (!field || !whenValue || params.length === 0) {
+      throw new Error(`Invalid @generator.paramNullWhen: ${value}`);
+    }
+
+    acc.paramNullWhen.push({ field, value: whenValue, params });
   } else if (directive === "notAuthorized") {
     acc.notAuthorized = true;
   } else if (directive === "ignore") {
@@ -105,6 +115,7 @@ export function parseSchema(schemaPath: string): KwilAction[] {
         description: "",
         paramOptional: [],
         returnOptional: [],
+        paramNullWhen: [],
       });
 
     actions.push({
