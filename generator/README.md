@@ -124,4 +124,5 @@ These parameter/return names get tighter Zod schemas than the raw SQL type:
 - `encryption_password_store` → `encryptionPasswordStoreSchema`
 - `content_uri` / `*_content_uri` → `ipfsContentUriSchema` (`ipfs://` prefix) on **inputs**
 - `content_size` / `*_content_size` → `contentSizeSchema` (positive int) on **inputs**
+- `not_before`, `not_after`, `not_usable_before`, `not_usable_after`, `access_grant_timelock` (and the same names with a `dwg_` prefix) → `rfc3339DateTimeSchema` (`z.iso.datetime({ precision: 0 })`, `yyyy-mm-ddThh:mm:ssZ`)
 

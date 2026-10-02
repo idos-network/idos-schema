@@ -1,4 +1,6 @@
+import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import nearley from 'nearley';
 
 import { parseStatements } from './tokenizer';
@@ -39,7 +41,10 @@ export interface Value {
 }
 
 function parseArrayDescription(input: string): string[] {
-  return input.replace(/\"/g, "").split(/[\s,]+/).map(s => s.trim()).filter(s => s.length > 0);
+  // NOTE: a " inside a quoted value ends the token. Scan escapes if values need embedded quotes.
+  return [...input.matchAll(/"([^"]*)"|[^\s,]+/g)]
+    .map(match => (match[1] ?? match[0].replace(/"/g, "")).trim())
+    .filter(token => token.length > 0);
 }
 
 function applyGeneratorComment(acc: GeneratorComments, directive: string, rawValue: string): GeneratorComments {
@@ -126,4 +131,18 @@ export function parseSchema(schemaPath: string): KwilAction[] {
   }
 
   return actions;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  const check = (input: string, expected: string[]) => {
+    assert.deepEqual(parseArrayDescription(input), expected);
+  };
+
+  check('"New York"', ["New York"]);
+  check('"New York, NY" "Los Angeles"', ["New York, NY", "Los Angeles"]);
+  check('"wallet_type" "MM" "not_before" "not_after"', ["wallet_type", "MM", "not_before", "not_after"]);
+  check('"public_key", "inserter"', ["public_key", "inserter"]);
+  check("public_key, inserter", ["public_key", "inserter"]);
+  check("  a, , b  ", ["a", "b"]);
+  check('"New York", foo bar', ["New York", "foo", "bar"]);
 }

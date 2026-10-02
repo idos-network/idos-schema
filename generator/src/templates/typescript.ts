@@ -138,6 +138,18 @@ export function generateTypescript(methods: KwilAction[]) {
     ],
   });
 
+  // yyyy-mm-ddThh:mm:ssZ, the format parse_unix_timestamp and idos.parse_date require.
+  // precision 0 rejects fractional seconds; offsets and timezone-less values stay invalid.
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    declarations: [
+      {
+        name: "rfc3339DateTimeSchema",
+        initializer: `z.iso.datetime({ precision: 0 })`,
+      },
+    ],
+  });
+
   sourceFile.addTypeAlias({
     isExported: true,
     name: "ActionSchemaElement",
@@ -223,6 +235,13 @@ export function generateTypescript(methods: KwilAction[]) {
     return name === "content_size" || name.endsWith("_content_size");
   }
 
+  // not_before, dwg_not_after, access_grant_timelock, not_usable_before, …
+  const RFC3339_FIELD = /(?:^|_)(?:not_usable_before|not_usable_after|not_before|not_after|access_grant_timelock)$/;
+
+  function isRfc3339DateTimeField(arg: Value): boolean {
+    return arg.type === "TEXT" && RFC3339_FIELD.test(arg.name);
+  }
+
   function zodSchemaForArg(arg: Value, refineBlobFields: boolean): string {
     if (customZodDbMapping[arg.name]) {
       return customZodDbMapping[arg.name];
@@ -236,12 +255,18 @@ export function generateTypescript(methods: KwilAction[]) {
         return "contentSizeSchema";
       }
     }
+    if (isRfc3339DateTimeField(arg)) {
+      return "rfc3339DateTimeSchema";
+    }
     return `z.${zodDbMapping[arg.type]}()`;
   }
 
   function zodTypeForArg(arg: Value): string {
     if (customZodTypeMapping[arg.name]) {
       return customZodTypeMapping[arg.name];
+    }
+    if (isRfc3339DateTimeField(arg)) {
+      return "z.ZodISODateTime";
     }
     return `z.${zodTypeMapping[arg.type]}`;
   }
