@@ -299,6 +299,7 @@ CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_en
         WHERE id = $id AND inserter = $inserter;
 };
 
+-- @generator.returnRequired
 CREATE OR REPLACE ACTION get_user() PUBLIC VIEW RETURNS (id UUID, recipient_encryption_public_key TEXT, encryption_password_store TEXT) {
     $caller_user_id := caller_user_id();
     for $row in SELECT id, recipient_encryption_public_key, encryption_password_store FROM users
@@ -394,6 +395,7 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
 };
 
 -- @generator.description "Construct canonical add-wallet message"
+-- @generator.returnRequired
 CREATE OR REPLACE ACTION add_wallet_message(
     $address TEXT,
     $wallet_type TEXT,

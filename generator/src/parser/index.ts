@@ -25,6 +25,8 @@ export interface KwilAction {
 export interface GeneratorComments {
   ignore: boolean;
   notAuthorized: boolean;
+  // Single-row action throws instead of resolving undefined when no row is returned.
+  returnRequired: boolean;
   description: string;
   paramOptional: string[];
   returnOptional: string[];
@@ -66,6 +68,8 @@ function applyGeneratorComment(acc: GeneratorComments, directive: string, rawVal
     acc.paramNullWhen.push({ field, value: whenValue, params });
   } else if (directive === "notAuthorized") {
     acc.notAuthorized = true;
+  } else if (directive === "returnRequired") {
+    acc.returnRequired = true;
   } else if (directive === "ignore") {
     acc.ignore = true;
   } else {
@@ -112,6 +116,7 @@ export function parseSchema(schemaPath: string): KwilAction[] {
       }, {
         ignore: false,
         notAuthorized: false,
+        returnRequired: false,
         description: "",
         paramOptional: [],
         returnOptional: [],
