@@ -45,6 +45,8 @@ Use SQL comments to control code generation:
 
 - `@generator.description "text"` - Add description for the action
 - `@generator.paramOptional "paramName"` - Mark parameter as optional
+- `@generator.paramNullWhen "field" "value" "param1" "param2"` - Zod `.refine`: params must be null when `field === value`, set otherwise
+- `@generator.returnRequired` - Single-row action throws when no row is returned (instead of resolving `undefined`)
 - `@generator.notAuthorized` - Mark action as requiring authorization
 - `@generator.ignore` - Exclude action from generated output
 
@@ -119,8 +121,9 @@ The parser uses Nearley for grammar parsing. To modify the grammar:
 
 These parameter/return names get tighter Zod schemas than the raw SQL type:
 
-- `wallet_type` → `walletTypeSchema`
+- `wallet_type` → `walletTypeSchema` (`add_wallet` and `add_wallet_message` use `addWalletTypeSchema`, which excludes `MM`)
 - `encryption_password_store` → `encryptionPasswordStoreSchema`
 - `content_uri` / `*_content_uri` → `ipfsContentUriSchema` (`ipfs://` prefix) on **inputs**
 - `content_size` / `*_content_size` → `contentSizeSchema` (positive int) on **inputs**
+- `not_before`, `not_after`, `not_usable_before`, `not_usable_after`, `access_grant_timelock` (and the same names with a `dwg_` prefix) → `rfc3339DateTimeSchema` (`z.iso.datetime({ precision: 0 })`, `yyyy-mm-ddThh:mm:ssZ`)
 

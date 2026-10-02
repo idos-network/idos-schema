@@ -1,4 +1,6 @@
+import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import nearley from 'nearley';
 
 import { parseStatements } from './tokenizer';
@@ -25,9 +27,14 @@ export interface KwilAction {
 export interface GeneratorComments {
   ignore: boolean;
   notAuthorized: boolean;
+  // Single-row action throws instead of resolving undefined when no row is returned.
+  returnRequired: boolean;
   description: string;
   paramOptional: string[];
   returnOptional: string[];
+  // `@generator.paramNullWhen "wallet_type" "MM" "not_before" "not_after"`:
+  // params must be null when field === value, and set otherwise.
+  paramNullWhen: { field: string; value: string; params: string[] }[];
 }
 
 export interface Value {
@@ -36,7 +43,10 @@ export interface Value {
 }
 
 function parseArrayDescription(input: string): string[] {
-  return input.replace(/\"/g, "").split(",").map(s => s.trim()).filter(s => s.length > 0);
+  // NOTE: a " inside a quoted value ends the token. Scan escapes if values need embedded quotes.
+  return [...input.matchAll(/"([^"]*)"|[^\s,]+/g)]
+    .map(match => (match[1] ?? match[0].replace(/"/g, "")).trim())
+    .filter(token => token.length > 0);
 }
 
 function applyGeneratorComment(acc: GeneratorComments, directive: string, rawValue: string): GeneratorComments {
@@ -54,8 +64,17 @@ function applyGeneratorComment(acc: GeneratorComments, directive: string, rawVal
     }
 
     acc.returnOptional.push(...parseArrayDescription(value));
+  } else if (directive === "paramNullWhen") {
+    const [field, whenValue, ...params] = parseArrayDescription(value);
+    if (!field || !whenValue || params.length === 0) {
+      throw new Error(`Invalid @generator.paramNullWhen: ${value}`);
+    }
+
+    acc.paramNullWhen.push({ field, value: whenValue, params });
   } else if (directive === "notAuthorized") {
     acc.notAuthorized = true;
+  } else if (directive === "returnRequired") {
+    acc.returnRequired = true;
   } else if (directive === "ignore") {
     acc.ignore = true;
   } else {
@@ -102,9 +121,11 @@ export function parseSchema(schemaPath: string): KwilAction[] {
       }, {
         ignore: false,
         notAuthorized: false,
+        returnRequired: false,
         description: "",
         paramOptional: [],
         returnOptional: [],
+        paramNullWhen: [],
       });
 
     actions.push({
@@ -115,4 +136,18 @@ export function parseSchema(schemaPath: string): KwilAction[] {
   }
 
   return actions;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  const check = (input: string, expected: string[]) => {
+    assert.deepEqual(parseArrayDescription(input), expected);
+  };
+
+  check('"New York"', ["New York"]);
+  check('"New York, NY" "Los Angeles"', ["New York, NY", "Los Angeles"]);
+  check('"wallet_type" "MM" "not_before" "not_after"', ["wallet_type", "MM", "not_before", "not_after"]);
+  check('"public_key", "inserter"', ["public_key", "inserter"]);
+  check("public_key, inserter", ["public_key", "inserter"]);
+  check("  a, , b  ", ["a", "b"]);
+  check('"New York", foo bar', ["New York", "foo", "bar"]);
 }
