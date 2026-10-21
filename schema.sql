@@ -1429,12 +1429,6 @@ CREATE OR REPLACE ACTION finalize_credential_deletion_as_gateway($credential_id 
     DELETE FROM access_grants WHERE data_id = $credential_id;
 };
 
--- credential_deletion_requests stay until finalize_credential_deletion_as_gateway.
--- The delete worker unpins before finalize; dropping the request after unpin leaves
--- a live credential whose blob is already gone. UKYC finalize needs the caller's
--- AccessToken, so those rows stay for DELETE /blob/v1/credentials/:id.
-DROP ACTION IF EXISTS delete_stale_credential_deletion_requests_as_gateway;
-
 -- @generator.ignore
 CREATE OR REPLACE ACTION authorize_blob_fetch_as_gateway(
     $credential_id UUID,
