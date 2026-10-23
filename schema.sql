@@ -540,6 +540,16 @@ CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
 
 -- CREDENTIAL ACTIONS
 
+-- @generator.description "Canonical broader-signature message for a credential"
+-- @generator.returnRequired
+CREATE OR REPLACE ACTION credential_broader_message(
+    $public_notes_signature TEXT,
+    $content_uri TEXT,
+    $recipient_wallet TEXT
+) PUBLIC VIEW RETURNS (message TEXT) {
+    return idos.credential_broader_message($public_notes_signature, $content_uri, $recipient_wallet);
+};
+
 -- @generator.description "Create a new preliminary credential"
 CREATE OR REPLACE ACTION create_preliminary_credential (
     $request_id UUID,
@@ -574,7 +584,7 @@ CREATE OR REPLACE ACTION create_preliminary_credential (
         error('content uri already in use');
     }
 
-    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content_uri, $broader_signature);
+    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content_uri, $broader_signature, @caller);
     if !$result {
         error('signature is wrong');
     }
@@ -843,7 +853,8 @@ CREATE OR REPLACE ACTION share_preliminary_credential (
         $public_notes,
         $public_notes_signature,
         $content_uri,
-        $broader_signature
+        $broader_signature,
+        @caller
     );
     if !$result {
         error('signature is wrong');
@@ -1031,7 +1042,8 @@ CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
         $original_public_notes,
         $original_public_notes_signature,
         $original_content_uri,
-        $original_broader_signature
+        $original_broader_signature,
+        $lookup_owner
     );
     if !$original_result {
         error('an original credential signature is wrong');
@@ -1042,7 +1054,8 @@ CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
         '',
         $copy_public_notes_signature,
         $copy_content_uri,
-        $copy_broader_signature
+        $copy_broader_signature,
+        $lookup_owner
     );
     if !$copy_result {
         error('a copy credential signature is wrong');
