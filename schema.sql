@@ -1145,12 +1145,17 @@ CREATE OR REPLACE ACTION get_preliminary_credential_as_gateway($id UUID) PUBLIC 
 -- must bind to that exact row. Matching only on (original_id, copy_id) is not enough: those
 -- columns are not unique, and once a row is removed (stale sweep) its credential ids and
 -- content URIs are released, letting a different row be substituted before finalization runs.
+-- The ids and URIs alone are not enough either: after the sweep another caller can re-stage
+-- the same request id, credential ids and URIs. inserter_id and created_at pin the row to the
+-- caller and the transaction that staged it, so a re-staged row never matches.
 CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
     $preliminary_id UUID,
     $preliminary_original_id UUID,
     $preliminary_copy_id UUID,
     $preliminary_original_content_uri TEXT,
-    $preliminary_copy_content_uri TEXT
+    $preliminary_copy_content_uri TEXT,
+    $preliminary_inserter_id TEXT,
+    $preliminary_created_at INT
 ) PUBLIC {
     gateway_or_error();
 
@@ -1202,7 +1207,8 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
             ) AND (
                 copy_content_uri = $preliminary_copy_content_uri
                 OR (copy_content_uri IS NULL AND $preliminary_copy_content_uri IS NULL)
-            ) {
+            ) AND inserter_id = $preliminary_inserter_id
+            AND created_at = $preliminary_created_at {
         $preliminary_found := true;
         $user_id := $row.user_id;
         $original_content_uri := $row.original_content_uri;
