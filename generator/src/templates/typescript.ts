@@ -73,7 +73,7 @@ export function generateTypescript(methods: KwilAction[]) {
     ]
   });
 
-  // add_wallet and add_wallet_message reject MM. upsert_wallet_as_inserter keeps walletTypeSchema.
+  // add_wallet, add_wallet_message and upsert_wallet_as_inserter reject MM (MM wallets are created by create_user_as_mm_operator).
   sourceFile.addVariableStatement({
     declarationKind: VariableDeclarationKind.Const,
     isExported: true,
@@ -272,7 +272,7 @@ export function generateTypescript(methods: KwilAction[]) {
     return arg.type === "TEXT" && RFC3339_FIELD.test(arg.name);
   }
 
-  const ADD_WALLET_ACTIONS = new Set(["add_wallet", "add_wallet_message"]);
+  const ADD_WALLET_ACTIONS = new Set(["add_wallet", "add_wallet_message", "upsert_wallet_as_inserter"]);
 
   function zodSchemaForArg(arg: Value, refineBlobFields: boolean, methodName: string): string {
     if (arg.name === "wallet_type" && ADD_WALLET_ACTIONS.has(methodName)) {
