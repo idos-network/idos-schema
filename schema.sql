@@ -445,6 +445,17 @@ CREATE OR REPLACE ACTION mm_user_storage_matches($user_id UUID, $storage_id TEXT
     return $user_storage_id = $storage_id;
 };
 
+-- True when $uri is a ukyc:// URI in $storage_id (false for nulls and other schemes).
+CREATE OR REPLACE ACTION ukyc_uri_in_storage($uri TEXT, $storage_id TEXT) PRIVATE VIEW RETURNS (matches BOOL) {
+    if !is_ukyc_content_uri($uri) {
+        return false;
+    }
+    if $storage_id is null {
+        return false;
+    }
+    return idos.ukyc_storage_id($uri) = $storage_id;
+};
+
 -- True when $mm_public_key is the user's MM wallet public key (false for nulls).
 CREATE OR REPLACE ACTION mm_public_key_matches($user_id UUID, $mm_public_key TEXT) PRIVATE VIEW RETURNS (matches BOOL) {
     if $mm_public_key is null {
@@ -2039,6 +2050,8 @@ CREATE OR REPLACE ACTION request_user_wipe_as_mm_operator($user_id UUID, $storag
 -- storage token: blob-gateway checks it, and kwild checks it again here (signature, audience,
 -- expiry, operation) and takes the user's key and storage from it. These are view actions, so
 -- the token never reaches the chain. A token that fails the check fails the call.
+-- storage_mismatch: the token is for another storage than the row's ukyc:// content URIs
+-- (upload, blob fetch) or the user's storage (wipe); blob-gateway must not touch UKYC then.
 
 -- @generator.ignore
 CREATE OR REPLACE ACTION authorize_mm_upload_as_gateway(
@@ -2048,7 +2061,7 @@ CREATE OR REPLACE ACTION authorize_mm_upload_as_gateway(
 ) PUBLIC VIEW RETURNS (authorized BOOL, reason TEXT) {
     gateway_or_error();
 
-    $mm_public_key, _ := idos.verify_storage_token($storage_token, 'write');
+    $mm_public_key, $storage_id := idos.verify_storage_token($storage_token, 'write');
 
     $operator := get_mm_operator_for($operator_wallet);
     if $operator is null {
@@ -2057,9 +2070,13 @@ CREATE OR REPLACE ACTION authorize_mm_upload_as_gateway(
 
     $found := false;
     $user_id UUID;
-    for $row in SELECT user_id FROM preliminary_credentials WHERE id = $request_id {
+    $original_content_uri TEXT;
+    $copy_content_uri TEXT;
+    for $row in SELECT user_id, original_content_uri, copy_content_uri FROM preliminary_credentials WHERE id = $request_id {
         $found := true;
         $user_id := $row.user_id;
+        $original_content_uri := $row.original_content_uri;
+        $copy_content_uri := $row.copy_content_uri;
         break;
     }
     if !$found {
@@ -2071,6 +2088,24 @@ CREATE OR REPLACE ACTION authorize_mm_upload_as_gateway(
     }
     if !mm_public_key_matches($user_id, $mm_public_key) {
         return false, 'forbidden';
+    }
+
+    -- Every content URI of the row must be in the token's storage, and there must be one.
+    $has_uri := false;
+    if $original_content_uri is not null {
+        if !ukyc_uri_in_storage($original_content_uri, $storage_id) {
+            return false, 'storage_mismatch';
+        }
+        $has_uri := true;
+    }
+    if $copy_content_uri is not null {
+        if !ukyc_uri_in_storage($copy_content_uri, $storage_id) {
+            return false, 'storage_mismatch';
+        }
+        $has_uri := true;
+    }
+    if !$has_uri {
+        return false, 'storage_mismatch';
     }
 
     if mm_user_frozen($user_id) {
@@ -2088,7 +2123,7 @@ CREATE OR REPLACE ACTION authorize_mm_blob_fetch_as_gateway(
 ) PUBLIC VIEW RETURNS (authorized BOOL, content_uri TEXT, content_size INT8, reason TEXT) {
     gateway_or_error();
 
-    $mm_public_key, _ := idos.verify_storage_token($storage_token, 'read');
+    $mm_public_key, $storage_id := idos.verify_storage_token($storage_token, 'read');
 
     $operator := get_mm_operator_for($operator_wallet);
     if $operator is null {
@@ -2115,6 +2150,9 @@ CREATE OR REPLACE ACTION authorize_mm_blob_fetch_as_gateway(
     }
     if !mm_public_key_matches($user_id, $mm_public_key) {
         return false, null, null, 'forbidden';
+    }
+    if !ukyc_uri_in_storage($content_uri, $storage_id) {
+        return false, null, null, 'storage_mismatch';
     }
 
     if mm_user_frozen($user_id) {
