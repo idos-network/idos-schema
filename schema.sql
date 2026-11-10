@@ -227,6 +227,14 @@ CREATE OR REPLACE ACTION delete_delegate_as_owner($address TEXT) OWNER PUBLIC {
   DELETE FROM delegates WHERE address=$address;
 };
 
+-- users.inserter and wallets.inserter hold the inserter name.
+CREATE OR REPLACE ACTION get_inserter_name($inserter_id UUID) PRIVATE VIEW RETURNS (name TEXT) {
+    for $row in SELECT name FROM inserters WHERE id = $inserter_id {
+        return $row.name;
+    }
+    return null;
+};
+
 
 -- GATEWAY ACTIONS
 
@@ -317,14 +325,6 @@ CREATE OR REPLACE ACTION get_mm_operator() PRIVATE VIEW RETURNS (inserter_id UUI
         error('Unauthorized MM operator');
     }
     return $inserter_id;
-};
-
--- users.inserter and wallets.inserter hold the inserter name.
-CREATE OR REPLACE ACTION get_inserter_name($inserter_id UUID) PRIVATE VIEW RETURNS (name TEXT) {
-    for $row in SELECT name FROM inserters WHERE id = $inserter_id {
-        return $row.name;
-    }
-    return null;
 };
 
 -- An MM user is a user with an MM wallet. Its public key is the UKYC storage token's
@@ -1868,10 +1868,10 @@ CREATE OR REPLACE ACTION get_user_as_mm_operator($storage_token TEXT) PUBLIC VIE
 ) {
     $operator_name := get_inserter_name(get_mm_operator());
     $mm_public_key, _ := idos.verify_storage_token($storage_token, 'any');
-    return SELECT u.id, u.recipient_encryption_public_key, r.user_id IS NOT NULL AS frozen
+    return SELECT u.id, u.recipient_encryption_public_key, wipe_request.user_id IS NOT NULL AS frozen
         FROM users AS u
         INNER JOIN wallets AS w ON w.user_id = u.id
-        LEFT JOIN mm_user_wipe_requests AS r ON r.user_id = u.id
+        LEFT JOIN mm_user_wipe_requests AS wipe_request ON wipe_request.user_id = u.id
         WHERE w.wallet_type = 'MM'
             AND w.public_key = $mm_public_key
             AND u.inserter = $operator_name;
@@ -1925,8 +1925,8 @@ CREATE OR REPLACE ACTION get_credentials_as_mm_operator($user_id UUID, $storage_
     return SELECT c.id, c.user_id, c.public_notes, c.content_uri, c.content_size, c.encryptor_public_key,
         c.issuer_auth_public_key, c.inserter_type, c.inserter_id
         FROM credentials AS c
-        LEFT JOIN mm_user_wipe_requests AS r ON r.user_id = c.user_id
-        WHERE c.user_id = $user_id AND r.user_id IS NULL;
+        LEFT JOIN mm_user_wipe_requests AS wipe_request ON wipe_request.user_id = c.user_id
+        WHERE c.user_id = $user_id AND wipe_request.user_id IS NULL;
 };
 
 -- Like create_preliminary_credential, for an MM user. The issuer signs with the user's MM
@@ -1990,8 +1990,7 @@ CREATE OR REPLACE ACTION create_preliminary_credential_as_mm_operator(
         error('content uri already in use');
     }
 
-    $mm_public_key := mm_user_public_key($user_id);
-    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content_uri, $broader_signature, $mm_public_key);
+    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content_uri, $broader_signature, $token_public_key);
     if !$result {
         error('signature is wrong');
     }
