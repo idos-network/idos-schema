@@ -771,6 +771,10 @@ CREATE OR REPLACE ACTION create_preliminary_credential (
 ) PUBLIC {
     capture_gas(gas_capture_amount());
 
+    -- Refused for MM users, also when signed in with another wallet: their MM operator stages
+    -- their credentials (create_preliminary_credential_as_mm_operator), with their storage token.
+    assert_not_mm_user(caller_user_id());
+
     if credential_id_in_use($credential_id) {
         error('credential id already in use or reserved in a pending preliminary');
     }
@@ -1026,6 +1030,9 @@ CREATE OR REPLACE ACTION share_preliminary_credential (
     $locked_until INT8
 ) PUBLIC {
     capture_gas(gas_capture_amount());
+
+    -- Refused for MM users, also when signed in with another wallet: their credentials can't be shared.
+    assert_not_mm_user(caller_user_id());
 
     if !credential_belongs_to_caller($original_id) {
         error('original credential does not belong to the caller');
