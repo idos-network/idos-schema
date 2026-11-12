@@ -1365,6 +1365,14 @@ CREATE OR REPLACE ACTION delete_stale_preliminary_as_gateway($age_seconds INT) P
         error('age_seconds must be positive');
     }
 
+    -- A swept preliminary never became a credential, so release the delegated write grant it
+    -- consumed (inserter_id holds the dwg id): the issuer can retry with the same grant.
+    for $row in SELECT inserter_id FROM preliminary_credentials
+        WHERE inserter_type = 'dwg' AND (@block_timestamp - created_at) > $age_seconds {
+        $dwg_id := $row.inserter_id::UUID;
+        DELETE FROM consumed_write_grants WHERE id = $dwg_id;
+    }
+
     DELETE FROM preliminary_credentials WHERE (@block_timestamp - created_at) > $age_seconds;
 };
 
