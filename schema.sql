@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- for XRPL type, address is case sensitive like rHb9CJAWyB4rj91VRWn96Dk6kG4b4dtyTh, and public key is 32-byte Ed25519 public key in hex format, prefixed by `ED`
 -- for Stellar type, address is case sensitive like GCFXQ3PM5Y6V4KXQ5Y4L, and public key is 32 byte Ed25519 public key in StrKey format, starting with `G`
 -- for FaceSign type, address and public key are the same, it's the ed25519 public key in hex format
--- for MM type, address and public key are the same, it's the mm_token signing_public_key in base64url format
+-- for MM type, address and public key are the same, it's the UKYC storage token signing_public_key in base64url format
 
 CREATE TABLE IF NOT EXISTS wallets (
     id UUID PRIMARY KEY,
@@ -158,6 +158,21 @@ CREATE TABLE IF NOT EXISTS gateways (
     address TEXT PRIMARY KEY -- identifier of a gateway caller
 );
 
+-- An MM operator is an inserter listed here. Its delegates create and manage MM users
+-- (users with an MM wallet) through the *_as_mm_operator actions.
+CREATE TABLE IF NOT EXISTS mm_operators (
+    inserter_id UUID PRIMARY KEY,
+    FOREIGN KEY (inserter_id) REFERENCES inserters(id) ON DELETE CASCADE
+);
+
+-- A row freezes an MM user until the gateway deletes the user (data wipe).
+CREATE TABLE IF NOT EXISTS mm_user_wipe_requests (
+    user_id UUID PRIMARY KEY,
+    requested_by TEXT NOT NULL, -- MM operator inserter id
+    created_at INT NOT NULL,    -- @block_timestamp
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS consumed_write_grants (
     id UUID PRIMARY KEY,
     owner_wallet_identifier TEXT NOT NULL, -- user wallet/pk
@@ -212,6 +227,14 @@ CREATE OR REPLACE ACTION delete_delegate_as_owner($address TEXT) OWNER PUBLIC {
   DELETE FROM delegates WHERE address=$address;
 };
 
+-- users.inserter and wallets.inserter hold the inserter name.
+CREATE OR REPLACE ACTION get_inserter_name($inserter_id UUID) PRIVATE VIEW RETURNS (name TEXT) {
+    for $row in SELECT name FROM inserters WHERE id = $inserter_id {
+        return $row.name;
+    }
+    return null;
+};
+
 
 -- GATEWAY ACTIONS
 
@@ -225,6 +248,18 @@ CREATE OR REPLACE ACTION add_gateway_as_owner($address TEXT) OWNER PUBLIC {
 -- @generator.ignore
 CREATE OR REPLACE ACTION delete_gateway_as_owner($address TEXT) OWNER PUBLIC {
     DELETE FROM gateways WHERE address = lower($address);
+};
+
+-- @generator.description "Register an inserter as an MM operator"
+-- @generator.ignore
+CREATE OR REPLACE ACTION add_mm_operator_as_owner($inserter_id UUID) OWNER PUBLIC {
+    INSERT INTO mm_operators (inserter_id) VALUES ($inserter_id);
+};
+
+-- @generator.description "Remove an inserter from the MM operators"
+-- @generator.ignore
+CREATE OR REPLACE ACTION delete_mm_operator_as_owner($inserter_id UUID) OWNER PUBLIC {
+    DELETE FROM mm_operators WHERE inserter_id = $inserter_id;
 };
 
 CREATE OR REPLACE ACTION gateway_or_error() PRIVATE VIEW {
@@ -271,6 +306,169 @@ CREATE OR REPLACE ACTION wallet_user_id($wallet TEXT) PRIVATE VIEW RETURNS (user
 };
 
 
+-- MM OPERATOR HELPERS
+
+-- The MM operator (its inserter id, the stable identifier) for a delegate key, or null.
+-- Delegates are keys that can be rotated; they are stored lowercased (add_delegate_as_owner).
+CREATE OR REPLACE ACTION get_mm_operator_for($wallet TEXT) PRIVATE VIEW RETURNS (inserter_id UUID) {
+    for $row in SELECT d.inserter_id FROM delegates AS d
+        INNER JOIN mm_operators AS o ON o.inserter_id = d.inserter_id
+        WHERE d.address = lower($wallet) {
+        return $row.inserter_id;
+    }
+    return null;
+};
+
+CREATE OR REPLACE ACTION get_mm_operator() PRIVATE VIEW RETURNS (inserter_id UUID) {
+    $inserter_id := get_mm_operator_for(@caller);
+    if $inserter_id is null {
+        error('Unauthorized MM operator');
+    }
+    return $inserter_id;
+};
+
+-- An MM user is a user with an MM wallet. Its public key is the UKYC storage token's
+-- signing_public_key.
+CREATE OR REPLACE ACTION mm_user_public_key($user_id UUID) PRIVATE VIEW RETURNS (public_key TEXT) {
+    for $row in SELECT public_key FROM wallets WHERE user_id = $user_id AND wallet_type = 'MM' {
+        return $row.public_key;
+    }
+    return null;
+};
+
+CREATE OR REPLACE ACTION mm_user_id($mm_public_key TEXT) PRIVATE VIEW RETURNS (user_id UUID) {
+    for $row in SELECT user_id FROM wallets WHERE public_key = $mm_public_key AND wallet_type = 'MM' {
+        return $row.user_id;
+    }
+    return null;
+};
+
+CREATE OR REPLACE ACTION is_mm_user($user_id UUID) PRIVATE VIEW RETURNS (is_mm_user BOOL) {
+    for $row in SELECT 1 FROM wallets WHERE user_id = $user_id AND wallet_type = 'MM' {
+        return true;
+    }
+    return false;
+};
+
+CREATE OR REPLACE ACTION assert_not_mm_user($user_id UUID) PRIVATE VIEW {
+    if is_mm_user($user_id) {
+        error('the user is managed by an MM operator');
+    }
+};
+
+-- An MM operator manages the MM users it created (users.inserter = the operator's name).
+CREATE OR REPLACE ACTION mm_operator_manages($operator_id UUID, $user_id UUID) PRIVATE VIEW RETURNS (manages BOOL) {
+    for $row in SELECT 1 FROM users AS u
+        INNER JOIN inserters AS i ON i.name = u.inserter
+        WHERE u.id = $user_id AND i.id = $operator_id {
+        return is_mm_user($user_id);
+    }
+    return false;
+};
+
+CREATE OR REPLACE ACTION assert_mm_operator_manages($operator_id UUID, $user_id UUID) PRIVATE VIEW {
+    if !mm_operator_manages($operator_id, $user_id) {
+        error('the user is not managed by this MM operator');
+    }
+};
+
+CREATE OR REPLACE ACTION mm_user_frozen($user_id UUID) PRIVATE VIEW RETURNS (frozen BOOL) {
+    for $row in SELECT 1 FROM mm_user_wipe_requests WHERE user_id = $user_id {
+        return true;
+    }
+    return false;
+};
+
+CREATE OR REPLACE ACTION is_ukyc_content_uri($uri TEXT) PRIVATE VIEW RETURNS (is_ukyc BOOL) {
+    if $uri is null {
+        return false;
+    }
+    return substring($uri, 1, 7) = 'ukyc://';
+};
+
+-- The UKYC storage of a user: the storage id of any of their ukyc:// content URIs, in
+-- credentials or pending preliminary credentials. Null when they have none yet; the first
+-- credential defines it. All of a user's ukyc:// URIs share one storage id (enforced by
+-- create_preliminary_credential_as_mm_operator).
+CREATE OR REPLACE ACTION mm_user_storage_id($user_id UUID) PRIVATE VIEW RETURNS (storage_id TEXT) {
+    for $row in SELECT content_uri FROM credentials
+        WHERE user_id = $user_id AND substring(content_uri, 1, 7) = 'ukyc://'
+        ORDER BY id LIMIT 1 {
+        return idos.ukyc_storage_id($row.content_uri);
+    }
+    for $row in SELECT original_content_uri FROM preliminary_credentials
+        WHERE user_id = $user_id AND substring(original_content_uri, 1, 7) = 'ukyc://'
+        ORDER BY id LIMIT 1 {
+        return idos.ukyc_storage_id($row.original_content_uri);
+    }
+    for $row in SELECT copy_content_uri FROM preliminary_credentials
+        WHERE user_id = $user_id AND substring(copy_content_uri, 1, 7) = 'ukyc://'
+        ORDER BY id LIMIT 1 {
+        return idos.ukyc_storage_id($row.copy_content_uri);
+    }
+    return null;
+};
+
+-- Note: in actions, AND / OR return null when either side is null (no SQL three-valued
+-- logic), so null checks are separate ifs, not "x is null OR x != y".
+
+-- A storage token is only accepted for the MM user whose MM wallet signed it.
+CREATE OR REPLACE ACTION assert_storage_token_user($user_id UUID, $token_public_key TEXT) PRIVATE VIEW {
+    $mm_public_key := mm_user_public_key($user_id);
+    if $mm_public_key is null {
+        error('storage token does not belong to the user');
+    }
+    if $token_public_key is null {
+        error('storage token does not belong to the user');
+    }
+    if $mm_public_key != $token_public_key {
+        error('storage token does not belong to the user');
+    }
+};
+
+-- A storage token must be for the user's storage, once the user has one.
+CREATE OR REPLACE ACTION assert_storage_token_storage($user_id UUID, $token_storage_id TEXT) PRIVATE VIEW {
+    if !mm_user_storage_matches($user_id, $token_storage_id) {
+        error('storage token does not match the user storage');
+    }
+};
+
+-- True when the user has no storage yet or $storage_id is it.
+CREATE OR REPLACE ACTION mm_user_storage_matches($user_id UUID, $storage_id TEXT) PRIVATE VIEW RETURNS (matches BOOL) {
+    $user_storage_id := mm_user_storage_id($user_id);
+    if $user_storage_id is null {
+        return true;
+    }
+    if $storage_id is null {
+        return false;
+    }
+    return $user_storage_id = $storage_id;
+};
+
+-- True when $uri is a ukyc:// URI in $storage_id (false for nulls and other schemes).
+CREATE OR REPLACE ACTION ukyc_uri_in_storage($uri TEXT, $storage_id TEXT) PRIVATE VIEW RETURNS (matches BOOL) {
+    if !is_ukyc_content_uri($uri) {
+        return false;
+    }
+    if $storage_id is null {
+        return false;
+    }
+    return idos.ukyc_storage_id($uri) = $storage_id;
+};
+
+-- True when $mm_public_key is the user's MM wallet public key (false for nulls).
+CREATE OR REPLACE ACTION mm_public_key_matches($user_id UUID, $mm_public_key TEXT) PRIVATE VIEW RETURNS (matches BOOL) {
+    if $mm_public_key is null {
+        return false;
+    }
+    $user_mm_public_key := mm_user_public_key($user_id);
+    if $user_mm_public_key is null {
+        return false;
+    }
+    return $user_mm_public_key = $mm_public_key;
+};
+
+
 -- USER ACTIONS
 
 -- @generator.description "Add a user to idOS"
@@ -278,6 +476,9 @@ CREATE OR REPLACE ACTION add_user_as_inserter($id UUID, $recipient_encryption_pu
     capture_gas(gas_capture_amount());
 
     $inserter := get_inserter();
+    if $encryption_password_store = 'mm' {
+        error('MM users can only be created by an MM operator');
+    }
     INSERT INTO users (id, recipient_encryption_public_key, encryption_password_store, inserter)
         VALUES ($id, $recipient_encryption_public_key, $encryption_password_store, $inserter);
 };
@@ -293,6 +494,11 @@ CREATE OR REPLACE ACTION update_user_pub_key_as_inserter($id UUID, $recipient_en
     }
     if !$owned {
         error('forbidden: the user was not created by the inserter');
+    }
+
+    assert_not_mm_user($id);
+    if $encryption_password_store = 'mm' {
+        error('the mm password store is only for MM users, which an MM operator manages');
     }
 
     UPDATE users SET recipient_encryption_public_key=$recipient_encryption_public_key, encryption_password_store=$encryption_password_store
@@ -324,8 +530,7 @@ CREATE OR REPLACE ACTION get_user_as_inserter($id UUID) PUBLIC VIEW RETURNS (
 -- WALLET ACTIONS
 
 -- @generator.description "Add a wallet to idOS by inserter (profile creator)"
--- @generator.paramOptional "public_key" "not_before" "not_after"
--- @generator.paramNullWhen "wallet_type" "MM" "not_before" "not_after"
+-- @generator.paramOptional "public_key"
 CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
     $id UUID,
     $user_id UUID,
@@ -338,7 +543,12 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
 ) PUBLIC {
     capture_gas(gas_capture_amount());
 
-    if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'FaceSign' AND $wallet_type != 'MM' {
+    if $wallet_type = 'MM' {
+        error('MM wallets can only be created by an MM operator');
+    }
+    assert_not_mm_user($user_id);
+
+    if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'FaceSign' {
         error('unsupported wallet type');
     }
 
@@ -353,33 +563,31 @@ CREATE OR REPLACE ACTION upsert_wallet_as_inserter(
         }
     }
 
-    if $wallet_type = 'NEAR' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' OR $wallet_type = 'FaceSign' OR $wallet_type = 'MM' {
+    if $wallet_type = 'NEAR' OR $wallet_type = 'XRPL' OR $wallet_type = 'Stellar' OR $wallet_type = 'FaceSign' {
         if $public_key is null {
             error('wallet require a public_key to be given');
         }
 
+        -- Existing MM wallets count too: a key can't be both an MM wallet and another wallet.
         for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type IN ('NEAR', 'Stellar', 'XRPL', 'FaceSign', 'MM') AND public_key = $public_key {
             error('wallet public key already exists in idos');
         }
     }
 
-    $message TEXT := NULL;
-    if $wallet_type != 'MM' {
-        if !idos.validate_not_usable_times($not_before, $not_after) {
-            error('not_before must be before not_after');
-        }
-
-        if parse_unix_timestamp($not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int > (@block_timestamp + 65)
-                OR @block_timestamp > parse_unix_timestamp($not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int {
-            error('this wallet proof can only be used after not_before and before not_after');
-        }
-
-        if !idos.verify_add_wallet($address, $public_key, $wallet_type, $user_id::TEXT, $not_before, $not_after, $signature) {
-            error('wallet is invalid');
-        }
-
-        $message = idos.add_wallet_message($address, $wallet_type, $user_id::TEXT, $not_before, $not_after);
+    if !idos.validate_not_usable_times($not_before, $not_after) {
+        error('not_before must be before not_after');
     }
+
+    if parse_unix_timestamp($not_before, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int > (@block_timestamp + 65)
+            OR @block_timestamp > parse_unix_timestamp($not_after, 'YYYY-MM-DD"T"HH24:MI:SS"Z"')::int {
+        error('this wallet proof can only be used after not_before and before not_after');
+    }
+
+    if !idos.verify_add_wallet($address, $public_key, $wallet_type, $user_id::TEXT, $not_before, $not_after, $signature) {
+        error('wallet is invalid');
+    }
+
+    $message := idos.add_wallet_message($address, $wallet_type, $user_id::TEXT, $not_before, $not_after);
 
     for $existing in SELECT user_id FROM wallets WHERE id = $id {
         if $existing.user_id != $user_id {
@@ -433,10 +641,6 @@ CREATE OR REPLACE ACTION add_wallet(
 ) PUBLIC {
     capture_gas(gas_capture_amount());
 
-    if @authenticator = 'mm_token' {
-        error('mm_token callers cannot add wallets');
-    }
-
     if $wallet_type != 'EVM' AND $wallet_type != 'NEAR' AND $wallet_type != 'XRPL' AND $wallet_type != 'Stellar' AND $wallet_type != 'FaceSign' {
         error('unsupported wallet type');
     }
@@ -457,7 +661,7 @@ CREATE OR REPLACE ACTION add_wallet(
             error('wallet require a public_key to be given');
         }
 
-        for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type IN ('NEAR', 'Stellar', 'XRPL', 'FaceSign') AND public_key = $public_key {
+        for $row_public_key in SELECT 1 FROM wallets WHERE id != $id AND wallet_type IN ('NEAR', 'Stellar', 'XRPL', 'FaceSign', 'MM') AND public_key = $public_key {
             error('wallet public key already exists in idos');
         }
     }
@@ -518,10 +722,6 @@ CREATE OR REPLACE ACTION get_wallets() PUBLIC VIEW RETURNS table (
 CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
     capture_gas(gas_capture_amount());
 
-    if @authenticator = 'mm_token' {
-        error('mm_token callers cannot remove wallets');
-    }
-
     $caller_user_id := caller_user_id();
     for $row in SELECT id FROM wallets
         WHERE id = $id
@@ -531,6 +731,12 @@ CREATE OR REPLACE ACTION remove_wallet($id UUID) PUBLIC {
             OR (wallet_type IN ('NEAR', 'FaceSign', 'MM') AND public_key = @caller)
         ) {
         error('You can not delete a wallet you are connected with. To delete this wallet you have to connect other wallet.');
+    }
+
+    -- A user may have an MM wallet next to others (created before MM operators). Without it
+    -- the user is no longer an MM user, and its ukyc:// credentials could never be wiped.
+    for $mm_row in SELECT 1 FROM wallets WHERE id = $id AND user_id = $caller_user_id AND wallet_type = 'MM' {
+        error('MM wallets can only be removed by a full user data wipe');
     }
 
     DELETE FROM wallets
@@ -565,6 +771,10 @@ CREATE OR REPLACE ACTION create_preliminary_credential (
 ) PUBLIC {
     capture_gas(gas_capture_amount());
 
+    -- Refused for MM users, also when signed in with another wallet: their MM operator stages
+    -- their credentials (create_preliminary_credential_as_mm_operator), with their storage token.
+    assert_not_mm_user(caller_user_id());
+
     if credential_id_in_use($credential_id) {
         error('credential id already in use or reserved in a pending preliminary');
     }
@@ -578,7 +788,8 @@ CREATE OR REPLACE ACTION create_preliminary_credential (
         error('invalid content uri');
     }
 
-    assert_content_uri_for_authenticator($content_uri);
+    $caller_user_id := caller_user_id();
+    assert_content_uri_for_user($caller_user_id, $content_uri);
 
     if content_uri_in_use($content_uri) {
         error('content uri already in use');
@@ -591,7 +802,6 @@ CREATE OR REPLACE ACTION create_preliminary_credential (
 
     $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
 
-    $caller_user_id := caller_user_id();
     INSERT INTO preliminary_credentials (
         id,
         user_id,
@@ -700,6 +910,10 @@ CREATE OR REPLACE ACTION remove_credential($id UUID) PUBLIC {
 
     if !credential_belongs_to_caller($id) {
         error('the credential does not belong to the caller');
+    }
+
+    if credential_is_ukyc($id) {
+        error('ukyc credentials can only be removed by a full data wipe');
     }
 
     if has_locked_access_grants($id) {
@@ -817,8 +1031,15 @@ CREATE OR REPLACE ACTION share_preliminary_credential (
 ) PUBLIC {
     capture_gas(gas_capture_amount());
 
+    -- Refused for MM users, also when signed in with another wallet: their credentials can't be shared.
+    assert_not_mm_user(caller_user_id());
+
     if !credential_belongs_to_caller($original_id) {
         error('original credential does not belong to the caller');
+    }
+
+    if credential_is_ukyc($original_id) {
+        error('ukyc credentials cannot be shared');
     }
 
     if credential_deletion_requested($original_id) {
@@ -838,7 +1059,8 @@ CREATE OR REPLACE ACTION share_preliminary_credential (
         error('invalid content uri');
     }
 
-    assert_content_uri_for_authenticator($content_uri);
+    $caller_user_id := caller_user_id();
+    assert_content_uri_for_user($caller_user_id, $content_uri);
 
     if content_uri_in_use($content_uri) {
         error('content uri already in use');
@@ -860,7 +1082,6 @@ CREATE OR REPLACE ACTION share_preliminary_credential (
         error('signature is wrong');
     }
 
-    $caller_user_id := caller_user_id();
     INSERT INTO preliminary_credentials (
         id,
         user_id,
@@ -950,8 +1171,13 @@ CREATE OR REPLACE ACTION create_preliminary_credentials_by_dwg(
         error('invalid copy content uri');
     }
 
-    assert_content_uri_for_authenticator($original_content_uri);
-    assert_content_uri_for_authenticator($copy_content_uri);
+    -- MM users are managed by their MM operator only.
+    $dwg_owner_user_id := wallet_user_id(normalize_wallet_identifier($dwg_owner));
+    if is_mm_user($dwg_owner_user_id) {
+        error('delegated write grants are not supported for MM users');
+    }
+    assert_content_uri_for_user($dwg_owner_user_id, $original_content_uri);
+    assert_content_uri_for_user($dwg_owner_user_id, $copy_content_uri);
 
     if $original_content_uri = $copy_content_uri {
         error('original content uri and copy content uri must differ');
@@ -1245,6 +1471,10 @@ CREATE OR REPLACE ACTION finalize_credentials_as_gateway(
         error('the preliminary record does not exist or changed since the upload started');
     }
 
+    if mm_user_frozen($user_id) {
+        error('user data wipe is in progress');
+    }
+
     if $preliminary_original_id is not null
         AND $preliminary_copy_id is not null
         AND $original_id_for_copy != $preliminary_original_id {
@@ -1415,6 +1645,11 @@ CREATE OR REPLACE ACTION authorize_credential_deletion_as_gateway(
         return false, null, null, 'not_requested';
     }
 
+    -- ukyc:// credentials are only removed by a full MM user data wipe.
+    if is_ukyc_content_uri($req_uri) {
+        return false, null, null, 'forbidden';
+    }
+
     -- Same access model as authorize_blob_fetch_as_gateway: grantee or owner.
     for $row in SELECT 1 FROM access_grants
         WHERE data_id = $credential_id
@@ -1455,6 +1690,11 @@ CREATE OR REPLACE ACTION authorize_blob_fetch_as_gateway(
 ) PUBLIC VIEW RETURNS (authorized BOOL, content_uri TEXT, content_size INT8) {
     gateway_or_error();
     $wallet_identifier := normalize_wallet_identifier($wallet_identifier);
+
+    -- ukyc:// blobs are only served to MM operators (authorize_mm_blob_fetch_as_gateway).
+    if credential_is_ukyc($credential_id) {
+        return false, null, null;
+    }
 
     for $row in SELECT c.content_uri, c.content_size FROM credentials AS c
         INNER JOIN access_grants AS ag ON c.id = ag.data_id
@@ -1591,18 +1831,395 @@ CREATE OR REPLACE ACTION credential_deletion_requested($id UUID) PRIVATE VIEW RE
     return false;
 };
 
--- mm_token credentials must use UKYC Storage (ukyc://); all other authenticators use IPFS.
-CREATE OR REPLACE ACTION assert_content_uri_for_authenticator($uri TEXT) PRIVATE VIEW {
+-- MM users' credentials must use UKYC Storage (ukyc://); everyone else's use IPFS.
+CREATE OR REPLACE ACTION assert_content_uri_for_user($user_id UUID, $uri TEXT) PRIVATE VIEW {
     $scheme = idos.content_uri_scheme($uri);
-    if @authenticator = 'mm_token' {
+    if is_mm_user($user_id) {
         if $scheme != 'ukyc' {
-            error('mm_token credentials require ukyc:// content uri');
+            error('MM user credentials require ukyc:// content uri');
         }
     } else {
         if $scheme != 'ipfs' {
             error('credentials require ipfs:// content uri');
         }
     }
+};
+
+CREATE OR REPLACE ACTION credential_is_ukyc($id UUID) PRIVATE VIEW RETURNS (is_ukyc BOOL) {
+    for $row in SELECT content_uri FROM credentials WHERE id = $id {
+        return is_ukyc_content_uri($row.content_uri);
+    }
+    return false;
+};
+
+
+-- MM OPERATOR ACTIONS
+-- An MM operator (see mm_operators) creates MM users, stages their ukyc:// credentials and
+-- freezes them for a data wipe. It only acts on the MM users it created, and every action
+-- also needs a valid UKYC storage token ($storage_token, the bare base64url envelope) minted
+-- by the user's app: the operator key alone can't do anything to an MM user. Tokens are
+-- verified at @block_timestamp (the last block's time in view calls).
+
+-- @generator.description "Get an MM user managed by the calling MM operator by a storage token of the user (any operation)"
+CREATE OR REPLACE ACTION get_user_as_mm_operator($storage_token TEXT) PUBLIC VIEW RETURNS table (
+    id UUID,
+    recipient_encryption_public_key TEXT,
+    frozen BOOL
+) {
+    $operator_name := get_inserter_name(get_mm_operator());
+    $mm_public_key, _ := idos.verify_storage_token($storage_token, 'any');
+    return SELECT u.id, u.recipient_encryption_public_key, wipe_request.user_id IS NOT NULL AS frozen
+        FROM users AS u
+        INNER JOIN wallets AS w ON w.user_id = u.id
+        LEFT JOIN mm_user_wipe_requests AS wipe_request ON wipe_request.user_id = u.id
+        WHERE w.wallet_type = 'MM'
+            AND w.public_key = $mm_public_key
+            AND u.inserter = $operator_name;
+};
+
+-- The MM wallet key is the storage token's signing key (write token).
+-- @generator.description "Create an MM user with its MM wallet as an MM operator"
+CREATE OR REPLACE ACTION create_user_as_mm_operator(
+    $id UUID,
+    $recipient_encryption_public_key TEXT,
+    $wallet_id UUID,
+    $storage_token TEXT
+) PUBLIC {
+    capture_gas(gas_capture_amount());
+
+    $operator_name := get_inserter_name(get_mm_operator());
+    $mm_public_key, _ := idos.verify_storage_token($storage_token, 'write');
+
+    for $row in SELECT 1 FROM wallets
+        WHERE (wallet_type IN ('NEAR', 'Stellar', 'XRPL', 'FaceSign', 'MM') AND public_key = $mm_public_key)
+            OR (wallet_type = 'MM' AND address = $mm_public_key) {
+        error('wallet public key already exists in idos');
+    }
+
+    INSERT INTO users (id, recipient_encryption_public_key, encryption_password_store, inserter)
+        VALUES ($id, $recipient_encryption_public_key, 'mm', $operator_name);
+
+    INSERT INTO wallets (id, user_id, address, public_key, wallet_type, inserter)
+        VALUES ($wallet_id, $id, $mm_public_key, $mm_public_key, 'MM', $operator_name);
+};
+
+-- Needs a read token of the user for the user's storage.
+-- @generator.description "Get the credentials of an MM user as its MM operator (none while a data wipe is in progress)"
+CREATE OR REPLACE ACTION get_credentials_as_mm_operator($user_id UUID, $storage_token TEXT) PUBLIC VIEW RETURNS table (
+    id UUID,
+    user_id UUID,
+    public_notes TEXT,
+    content_uri TEXT,
+    content_size INT8,
+    encryptor_public_key TEXT,
+    issuer_auth_public_key TEXT,
+    inserter_type TEXT,
+    inserter_id TEXT
+) {
+    $operator := get_mm_operator();
+    $mm_public_key, $storage_id := idos.verify_storage_token($storage_token, 'read');
+    assert_storage_token_user($user_id, $mm_public_key);
+    assert_mm_operator_manages($operator, $user_id);
+    assert_storage_token_storage($user_id, $storage_id);
+
+    return SELECT c.id, c.user_id, c.public_notes, c.content_uri, c.content_size, c.encryptor_public_key,
+        c.issuer_auth_public_key, c.inserter_type, c.inserter_id
+        FROM credentials AS c
+        LEFT JOIN mm_user_wipe_requests AS wipe_request ON wipe_request.user_id = c.user_id
+        WHERE c.user_id = $user_id AND wipe_request.user_id IS NULL;
+};
+
+-- Like create_preliminary_credential, for an MM user. The issuer signs with the user's MM
+-- wallet public key as the recipient wallet. Needs a write token of the user; the content URI's
+-- storage must be the token's storage and the user's storage (the first credential defines it).
+-- @generator.description "Create a preliminary ukyc:// credential for an MM user as its MM operator"
+CREATE OR REPLACE ACTION create_preliminary_credential_as_mm_operator(
+    $request_id UUID,
+    $user_id UUID,
+    $credential_id UUID,
+    $issuer_auth_public_key TEXT,
+    $encryptor_public_key TEXT,
+    $content_uri TEXT,
+    $content_size INT8,
+    $content_hash TEXT,
+    $public_notes TEXT,
+    $public_notes_signature TEXT,
+    $broader_signature TEXT,
+    $storage_token TEXT
+) PUBLIC {
+    capture_gas(gas_capture_amount());
+
+    $operator := get_mm_operator();
+    $token_public_key, $token_storage_id := idos.verify_storage_token($storage_token, 'write');
+    assert_storage_token_user($user_id, $token_public_key);
+    assert_mm_operator_manages($operator, $user_id);
+    if mm_user_frozen($user_id) {
+        error('user data wipe is in progress');
+    }
+
+    if credential_id_in_use($credential_id) {
+        error('credential id already in use or reserved in a pending preliminary');
+    }
+
+    if $content_size is null {
+        error('content size must be positive');
+    }
+    if $content_size <= 0 {
+        error('content size must be positive');
+    }
+
+    $content_uri_valid = idos.validate_content_uri($content_uri);
+    if !$content_uri_valid {
+        error('invalid content uri');
+    }
+
+    assert_content_uri_for_user($user_id, $content_uri);
+
+    $content_storage_id := idos.ukyc_storage_id($content_uri);
+    if $content_storage_id is null {
+        error('credential storage does not match the storage token');
+    }
+    if $content_storage_id != $token_storage_id {
+        error('credential storage does not match the storage token');
+    }
+    if !mm_user_storage_matches($user_id, $content_storage_id) {
+        error('credential storage does not match the user storage');
+    }
+
+    if content_uri_in_use($content_uri) {
+        error('content uri already in use');
+    }
+
+    $result = idos.assert_credential_signatures($issuer_auth_public_key, $public_notes, $public_notes_signature, $content_uri, $broader_signature, $token_public_key);
+    if !$result {
+        error('signature is wrong');
+    }
+
+    $verifiable_credential_id = idos.get_verifiable_credential_id($public_notes);
+
+    INSERT INTO preliminary_credentials (
+        id,
+        user_id,
+        original_id,
+        original_content_uri,
+        original_content_size,
+        original_encryptor_public_key,
+        verifiable_credential_id,
+        content_hash,
+        public_notes,
+        issuer_auth_public_key,
+        inserter_type,
+        inserter_id,
+        created_at
+    )
+    VALUES (
+        $request_id,
+        $user_id,
+        $credential_id,
+        $content_uri,
+        $content_size,
+        $encryptor_public_key,
+        CASE WHEN $verifiable_credential_id = '' THEN NULL ELSE $verifiable_credential_id END,
+        $content_hash,
+        $public_notes,
+        $issuer_auth_public_key,
+        'mm_operator',
+        $operator::TEXT,
+        @block_timestamp
+    );
+};
+
+-- Freezes the MM user: no new credentials, no reads, no finalize. The gateway deletes the
+-- user once the UKYC storage is deleted (finalize_mm_user_wipe_as_gateway). No cancel.
+-- Needs a delete token of the user for the user's storage, also when already requested.
+-- @generator.description "Request a data wipe of an MM user as its MM operator"
+CREATE OR REPLACE ACTION request_user_wipe_as_mm_operator($user_id UUID, $storage_token TEXT) PUBLIC {
+    capture_gas(gas_capture_amount());
+
+    $operator := get_mm_operator();
+    $mm_public_key, $storage_id := idos.verify_storage_token($storage_token, 'delete');
+    assert_storage_token_user($user_id, $mm_public_key);
+    assert_mm_operator_manages($operator, $user_id);
+    assert_storage_token_storage($user_id, $storage_id);
+
+    if mm_user_frozen($user_id) {
+        return;
+    }
+
+    INSERT INTO mm_user_wipe_requests (user_id, requested_by, created_at)
+        VALUES ($user_id, $operator::TEXT, @block_timestamp);
+};
+
+
+-- MM GATEWAY ACTIONS
+-- $operator_wallet is the MM operator's KGW session key. $storage_token is the user's raw
+-- storage token: blob-gateway checks it, and kwild checks it again here (signature, audience,
+-- expiry, operation) and takes the user's key and storage from it. These are view actions, so
+-- the token never reaches the chain. A token that fails the check fails the call.
+-- storage_mismatch: the token is for another storage than the row's ukyc:// content URIs
+-- (upload, blob fetch) or the user's storage (wipe); blob-gateway must not touch UKYC then.
+
+-- @generator.ignore
+CREATE OR REPLACE ACTION authorize_mm_upload_as_gateway(
+    $operator_wallet TEXT,
+    $request_id UUID,
+    $storage_token TEXT
+) PUBLIC VIEW RETURNS (authorized BOOL, reason TEXT) {
+    gateway_or_error();
+
+    $mm_public_key, $storage_id := idos.verify_storage_token($storage_token, 'write');
+
+    $operator := get_mm_operator_for($operator_wallet);
+    if $operator is null {
+        return false, 'not_mm_operator';
+    }
+
+    $found := false;
+    $user_id UUID;
+    $original_content_uri TEXT;
+    $copy_content_uri TEXT;
+    for $row in SELECT user_id, original_content_uri, copy_content_uri FROM preliminary_credentials WHERE id = $request_id {
+        $found := true;
+        $user_id := $row.user_id;
+        $original_content_uri := $row.original_content_uri;
+        $copy_content_uri := $row.copy_content_uri;
+        break;
+    }
+    if !$found {
+        return false, 'not_found';
+    }
+
+    if !mm_operator_manages($operator, $user_id) {
+        return false, 'forbidden';
+    }
+    if !mm_public_key_matches($user_id, $mm_public_key) {
+        return false, 'forbidden';
+    }
+
+    -- Every content URI of the row must be in the token's storage, and there must be one.
+    $has_uri := false;
+    if $original_content_uri is not null {
+        if !ukyc_uri_in_storage($original_content_uri, $storage_id) {
+            return false, 'storage_mismatch';
+        }
+        $has_uri := true;
+    }
+    if $copy_content_uri is not null {
+        if !ukyc_uri_in_storage($copy_content_uri, $storage_id) {
+            return false, 'storage_mismatch';
+        }
+        $has_uri := true;
+    }
+    if !$has_uri {
+        return false, 'storage_mismatch';
+    }
+
+    if mm_user_frozen($user_id) {
+        return false, 'frozen';
+    }
+
+    return true, '';
+};
+
+-- @generator.ignore
+CREATE OR REPLACE ACTION authorize_mm_blob_fetch_as_gateway(
+    $operator_wallet TEXT,
+    $credential_id UUID,
+    $storage_token TEXT
+) PUBLIC VIEW RETURNS (authorized BOOL, content_uri TEXT, content_size INT8, reason TEXT) {
+    gateway_or_error();
+
+    $mm_public_key, $storage_id := idos.verify_storage_token($storage_token, 'read');
+
+    $operator := get_mm_operator_for($operator_wallet);
+    if $operator is null {
+        return false, null, null, 'not_mm_operator';
+    }
+
+    $found := false;
+    $user_id UUID;
+    $content_uri TEXT;
+    $content_size INT8;
+    for $row in SELECT user_id, content_uri, content_size FROM credentials WHERE id = $credential_id {
+        $found := true;
+        $user_id := $row.user_id;
+        $content_uri := $row.content_uri;
+        $content_size := $row.content_size;
+        break;
+    }
+    if !$found {
+        return false, null, null, 'not_found';
+    }
+
+    if !mm_operator_manages($operator, $user_id) {
+        return false, null, null, 'forbidden';
+    }
+    if !mm_public_key_matches($user_id, $mm_public_key) {
+        return false, null, null, 'forbidden';
+    }
+    if !ukyc_uri_in_storage($content_uri, $storage_id) {
+        return false, null, null, 'storage_mismatch';
+    }
+
+    if mm_user_frozen($user_id) {
+        return false, null, null, 'frozen';
+    }
+
+    return true, $content_uri, $content_size, '';
+};
+
+-- storage_mismatch: the user has a storage (mm_user_storage_id) and the delete token is for
+-- another one; blob-gateway must not delete anything then.
+-- @generator.ignore
+CREATE OR REPLACE ACTION authorize_mm_user_wipe_as_gateway(
+    $operator_wallet TEXT,
+    $storage_token TEXT
+) PUBLIC VIEW RETURNS (authorized BOOL, reason TEXT) {
+    gateway_or_error();
+
+    $mm_public_key, $storage_id := idos.verify_storage_token($storage_token, 'delete');
+
+    $operator := get_mm_operator_for($operator_wallet);
+    if $operator is null {
+        return false, 'not_mm_operator';
+    }
+
+    $user_id := mm_user_id($mm_public_key);
+    if $user_id is null {
+        return false, 'no_user';
+    }
+
+    if !mm_operator_manages($operator, $user_id) {
+        return false, 'forbidden';
+    }
+
+    if !mm_user_storage_matches($user_id, $storage_id) {
+        return false, 'storage_mismatch';
+    }
+
+    if !mm_user_frozen($user_id) {
+        return false, 'not_requested';
+    }
+
+    return true, '';
+};
+
+-- Call only after the UKYC storage was deleted. Deleting the user cascades to its wallets,
+-- credentials, preliminary credentials, attributes, owned access grants and the wipe request.
+-- @generator.ignore
+CREATE OR REPLACE ACTION finalize_mm_user_wipe_as_gateway($mm_public_key TEXT) PUBLIC {
+    gateway_or_error();
+
+    $user_id := mm_user_id($mm_public_key);
+    if $user_id is null {
+        return;
+    }
+
+    if !mm_user_frozen($user_id) {
+        error('user data wipe was not requested');
+    }
+
+    DELETE FROM users WHERE id = $user_id;
 };
 
 
@@ -1613,6 +2230,7 @@ CREATE OR REPLACE ACTION add_attribute_as_inserter($id UUID, $user_id UUID, $att
     capture_gas(gas_capture_amount());
 
     $inserter := get_inserter();
+    assert_not_mm_user($user_id);
     INSERT INTO user_attributes (id, user_id, attribute_key, value, inserter)
     VALUES ($id, $user_id, $attribute_key, $value, $inserter);
 };
@@ -1851,6 +2469,10 @@ CREATE OR REPLACE ACTION create_access_grant(
 
     if credential_deletion_requested($data_id) {
         error('credential deletion already requested');
+    }
+
+    if credential_is_ukyc($data_id) {
+        error('ukyc credentials cannot be shared');
     }
 
     $user_id TEXT := '';
