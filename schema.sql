@@ -1,11 +1,20 @@
 -- PRIVILEGE SETTINGS
 
+-- The default role gets SELECT and CALL on every namespace. Ad-hoc SELECT is closed on the
+-- namespaces that hold data. Actions and extension-internal SQL are not affected.
+-- Never revoke CALL on kwil_erc20_meta or the token bridges: bridge methods call kwil_erc20_meta
+-- with the end user's context, so gas capture and balance checks would fail for every user.
 REVOKE IF GRANTED SELECT ON main FROM default;
+REVOKE IF GRANTED SELECT ON kwil_erc20_meta FROM default;
+REVOKE IF GRANTED SELECT ON kwil_ordered_sync FROM default;
 
 
 -- EXTENSION INITIALIZATION
 
 USE IF NOT EXISTS idos AS idos;
+
+-- Clients reach idos.* only through actions in main; actions are not affected by this.
+REVOKE IF GRANTED CALL ON idos FROM default;
 
 
 -- TABLES
